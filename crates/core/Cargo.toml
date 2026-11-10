@@ -1,0 +1,12 @@
+[package]
+name = "shaiwin-core"
+description = "Platform-agnostic dial geometry, gesture rules, theme and hit testing for ShaiZero"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

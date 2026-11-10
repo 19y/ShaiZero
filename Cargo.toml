@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/platform-win",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+# MIT plus the Commons Clause: use it for anything, including at work, but do
+# not sell it. Commons Clause is not an SPDX identifier, so the license is
+# spelled as a LicenseRef. See LICENSE.
+license = "LicenseRef-MIT-Commons-Clause"
+repository = "https://github.com/19y/ShaiZero"
+
+[workspace.dependencies]
+shaiwin-core = { path = "crates/core" }
+# Rendering. tiny-skia is pure Rust (no GPU context, no Direct2D boilerplate);
+# the labels come from GDI, see crates/app/src/text.rs.
+tiny-skia = "0.12"
+
+# Win32 bindings. Pinned to the version the reference port was verified with.
+windows = "0.62"
+windows-core = "0.62"
+winreg = "0.56"
+
+# Style lints that newer clippy releases turned on after this code was written.
+# None of them point at a bug; the release gate should keep failing on the ones
+# that do, so these three are switched off here instead of rewriting Win32 glue.
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+field_reassign_with_default = "allow"
+assertions_on_constants = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Keep dev builds usable when the overlay is animating.
+[profile.dev]
+opt-level = 1
