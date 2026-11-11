@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ShaiZero · 轮盘式窗口切换</title>
+<link rel="icon" type="image/x-icon" href="assets/site/shaiwin.ico">
+<link rel="apple-touch-icon" href="assets/site/shaiwin.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -77,6 +79,7 @@
   .desktop-icon:hover { background: rgba(255,255,255,0.07); }
   .desktop-icon:active { background: rgba(255,255,255,0.12); }
   .desktop-icon svg { width: 38px; height: 38px; }
+  .desktop-icon img { width: 38px; height: 38px; }
   .desktop-icon span {
     font-size: 11px; color: var(--text);
     text-shadow: 0 1px 3px rgba(0,0,0,0.8);
@@ -117,6 +120,7 @@
   }
   .titlebar .app-icon { width: 18px; height: 18px; margin-right: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .titlebar .app-icon svg { width: 18px; height: 18px; }
+  .titlebar .app-icon img { width: 18px; height: 18px; }
   .titlebar .title-text {
     font-size: 12.5px; color: var(--text-dim); flex: 1;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -226,6 +230,7 @@
 
   .info-hero { display: flex; align-items: center; gap: 12px; }
   .info-hero svg { width: 48px; height: 48px; flex-shrink: 0; }
+  .info-hero img { width: 48px; height: 48px; flex-shrink: 0; }
   .info-hero h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
   .info-hero .tagline { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
 
@@ -289,6 +294,7 @@
   }
   .tb-btn:hover { background: rgba(255,255,255,0.08); }
   .tb-btn svg { width: 22px; height: 22px; }
+  .tb-btn img { width: 22px; height: 22px; }
   .tb-btn.running::after {
     content: ""; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
     width: 5px; height: 3px; border-radius: 2px; background: var(--accent); opacity: 0.5;
@@ -442,12 +448,6 @@
   }
   .coffee-qr-box img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 6px; }
 
-  .coffee-scan-hint {
-    font-size: 12.5px; color: var(--text-dim); text-align: center;
-    line-height: 1.5;
-  }
-  .coffee-scan-hint b { color: #ffb450; }
-
   .coffee-foot {
     text-align: center; font-size: 11px; color: var(--text-dim);
     padding: 14px 20px 18px; line-height: 1.7;
@@ -474,12 +474,7 @@
   <!-- 桌面图标 -->
   <div id="desktop-icons">
     <div class="desktop-icon" data-open="about">
-      <svg viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/>
-        <path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/>
-        <circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/>
-        <path d="M24 8 L24 19 M24 29 L24 40 M11 16 L19 20.5 M29 27.5 L37 32 M37 16 L29 20.5 M19 27.5 L11 32" stroke="#00e5ff" stroke-width="1.2" opacity="0.5"/>
-      </svg>
+      <img src="assets/site/shaiwin.png" alt="ShaiZero">
       <span>ShaiZero</span>
     </div>
     <a class="desktop-icon" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">
@@ -498,12 +493,7 @@
   <!-- 右侧介绍面板 -->
   <div id="info-panel">
     <div class="info-hero">
-      <svg viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/>
-        <path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/>
-        <circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/>
-        <path d="M24 8 L24 19 M24 29 L24 40 M11 16 L19 20.5 M29 27.5 L37 32 M37 16 L29 20.5 M19 27.5 L11 32" stroke="#00e5ff" stroke-width="1.2" opacity="0.5"/>
-      </svg>
+      <img src="assets/site/shaiwin.png" alt="ShaiZero">
       <div>
         <h1>ShaiZero</h1>
         <div class="tagline">轮盘式窗口快速切换</div>
@@ -511,7 +501,7 @@
     </div>
 
     <div class="info-desc">
-      ShaiZero 是一个 Windows 窗口快速切换工具。按住 <b>Alt</b> 在桌面任意位置按下鼠标左键，轮盘展开，指针停在某一格松手，对应窗口就到前台；拖回圆心或右键取消。
+      ShaiZero 是一个 Windows 窗口快速切换工具。按住 <b>Alt</b> 在桌面任意位置按下鼠标左键，轮盘展开，指针停在某一格松手，对应窗口就到前台；拖回圆心或右键取消。呼出方式可以自定义成任意单键、组合键，或鼠标侧键。
     </div>
 
     <div class="info-section-title">核心特性</div>
@@ -519,12 +509,13 @@
       <div class="feature-item"><div class="dot"></div><span>单 exe，绿色免安装，不需要管理员权限</span></div>
       <div class="feature-item"><div class="dot"></div><span>Windows 10 1809+ / 11 x64，多屏 DPI 适配</span></div>
       <div class="feature-item"><div class="dot"></div><span>轮盘半径、扇区间距、动画、主题均可调</span></div>
+      <div class="feature-item"><div class="dot"></div><span>呼出快捷键可自定义：任意单键、组合键，或鼠标侧键</span></div>
       <div class="feature-item"><div class="dot"></div><span>不需要 .NET / VC++ 运行库，纯原生 Win32</span></div>
     </div>
 
     <div class="info-section-title">快捷键</div>
     <div class="shortcut-list">
-      <div class="shortcut-item"><span>呼出轮盘</span><kbd><span class="accent">Alt</span> + 鼠标左键</kbd></div>
+      <div class="shortcut-item"><span>呼出轮盘（可自定义）</span><kbd><span class="accent">Alt</span> + 鼠标左键</kbd></div>
       <div class="shortcut-item"><span>取消轮盘</span><kbd>右键 / 拖回圆心</kbd></div>
       <div class="shortcut-item"><span>打开设置</span><kbd><span class="accent">Ctrl</span> + <span class="accent">T</span></kbd></div>
     </div>
@@ -597,7 +588,6 @@
         <div class="coffee-qr-box">
           <img src="assets/site/donate-qr.png" alt="微信赞赏二维码" width="208" height="208">
         </div>
-        <div class="coffee-scan-hint">微信扫码 · 金额随意</div>
       </div>
       <div class="coffee-foot">
         您的支持是持续更新的动力 ♥
@@ -772,12 +762,12 @@ const WINDOWS_DATA = [
   {
     id: 'about',
     title: '关于 ShaiZero',
-    icon: `<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/><path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/><circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/></svg>`,
-    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/><path d="M12 4 L18.5 8 L18.5 16 L12 20 L5.5 16 L5.5 8 Z" stroke="#00e5ff" stroke-width="1.4" fill="rgba(0,229,255,0.1)"/><circle cx="12" cy="12" r="2.5" fill="#00e5ff"/></svg>`,
+    icon: `<img src="assets/site/shaiwin.png" alt="">`,
+    taskbarIcon: `<img src="assets/site/shaiwin.png" alt="">`,
     content: `
       <div class="about-content" style="padding:36px 40px;background:linear-gradient(160deg,rgba(0,229,255,0.06),transparent 60%);height:100%;overflow:auto;">
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
-          <svg viewBox="0 0 48 48" fill="none" style="width:56px;height:56px;"><circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/><path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/><circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/></svg>
+          <img src="assets/site/shaiwin.png" alt="" style="width:56px;height:56px;flex-shrink:0;">
           <div>
             <h1 style="font-size:26px;font-weight:700;letter-spacing:-0.3px;">ShaiZero</h1>
             <div style="font-size:13px;color:var(--text-dim);margin-top:3px;">轮盘式窗口快速切换 · 单 exe · 绿色免安装</div>

@@ -422,6 +422,18 @@ impl App {
                 self.open_settings_at(wp.0);
                 LRESULT(0)
             }
+            crate::wheel::WM_WHEEL_ROTATE => {
+                // The dial was turned by dragging outside its rim. The wheel
+                // hands the angle over when the gesture ends so the setting is
+                // written once, not once per frame of the drag.
+                let angle = (wp.0 as f32 / 100.0).rem_euclid(360.0);
+                if (self.settings.wheel_rotate - angle).abs() > 0.01 {
+                    self.settings.wheel_rotate = angle;
+                    self.settings.save();
+                    crate::wheel::reconfigure(&self.settings);
+                }
+                LRESULT(0)
+            }
             tray::WM_TRAY => {
                 // Version 4 delivers the menu as `WM_CONTEXTMENU` and a click as
                 // `NIN_SELECT`, which is the pair the icon is registered for. The
@@ -1196,7 +1208,7 @@ impl App {
             trigger_button,
             wheel_theme,
             wheel_accent,
-            wheel_seam,
+            wheel_rotate,
             colour_scheme,
             wheel_open_ms,
             wheel_limit,
@@ -1234,7 +1246,10 @@ impl App {
         self.settings.trigger_button = trigger_button;
         self.settings.wheel_theme = wheel_theme;
         self.settings.wheel_accent = wheel_accent;
-        self.settings.wheel_seam = wheel_seam;
+        // The seam is not a setting any more; the dial's turn has no row either,
+        // and reaches this draft only from the drag around the picture.
+        self.settings.wheel_seam = settings::WHEEL_SEAM_DEFAULT;
+        self.settings.wheel_rotate = wheel_rotate;
         self.settings.colour_scheme = colour_scheme;
         self.settings.wheel_open_ms = wheel_open_ms;
         self.settings.reduced_motion = reduced_motion;
