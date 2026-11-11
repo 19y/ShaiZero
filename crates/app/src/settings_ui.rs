@@ -403,8 +403,8 @@ const SEC_COUNT: usize = 4;
 /// The one section [`App`] can ask for by name: the dial's shortcut opens the
 /// page on the dial itself, which is also where a plain open lands.
 pub const SECTION_DIAL: usize = SEC_DIAL;
-/// The most cards any one section lays out. 轮盘 holds a preview and seven rows.
-const MAX_CARDS: usize = 8;
+/// The most cards any one section lays out. 轮盘 holds a preview and eight rows.
+const MAX_CARDS: usize = 9;
 /// The card in 语言 that holds the row of names rather than one control.
 const LANG_GRID_ROW: usize = 0;
 /// The dial's picture is the one thing on the page that grows with the window.
@@ -479,6 +479,8 @@ const DIAL_LIMIT_ROW: usize = 5;
 const DIAL_ORDER_ROW: usize = 6;
 /// Where a picked window lands, under the order it was picked in.
 const DIAL_POSITION_ROW: usize = 7;
+/// Degrees clockwise the whole dial is turned, so it sits where the hand expects.
+const DIAL_ROTATE_ROW: usize = 8;
 
 /// The navigation's words. `settings_group_keys` is the name the old page already
 /// gave the shortcuts; the others are new because the page came apart into
@@ -547,6 +549,10 @@ const CARDS: [&[Card]; SEC_COUNT] = [
         Card {
             title: "settings_dial_position_short",
             note: "settings_dial_position_note",
+        },
+        Card {
+            title: "settings_dial_rotate_short",
+            note: "settings_dial_rotate_note",
         },
     ],
     &[
@@ -850,6 +856,8 @@ struct State {
     wheel_theme: u32,
     wheel_accent: u32,
     wheel_seam: f32,
+    /// Degrees clockwise the whole dial is turned.
+    wheel_rotate: f32,
     colour_scheme: u32,
     wheel_open_ms: u32,
     /// The dial's window limit and the order its windows arrive in. Both are
@@ -862,7 +870,7 @@ struct State {
     /// 轮盘's cells and steppers, made once with the window like every other
     /// control, so switching sections only moves their visibility.
     dial_cells: [HWND; DIAL_CELLS],
-    dial_steps: [HWND; 6],
+    dial_steps: [HWND; 8],
     /// The first few windows, mirrored beside the picture so one can be dragged
     /// onto a sector without leaving the page.
     dial_pool: Vec<Row>,
@@ -1460,7 +1468,7 @@ struct DialPreview {
     /// a key without the seats would keep showing a sector that has left the
     /// dial, because the limit and the desk size can stay the same while a row
     /// moves between the two sections.
-    key: (u32, u32, u32, u32, u32, u32, u32, usize, u64),
+    key: (u32, u32, u32, u32, u32, u32, u32, u32, usize, u64),
 }
 
 /// The filmstrip's seven pictures: one theme each, at the strip's size. A slot is
@@ -1507,8 +1515,8 @@ struct Layout {
     /// rows, so the strip reads as a band rather than six cards.
     dial_param_card: RECT,
     dial_cells: [RECT; DIAL_CELLS],
-    dial_steps: [RECT; 6],
-    dial_values: [RECT; 3],
+    dial_steps: [RECT; 8],
+    dial_values: [RECT; 4],
     /// The radius edit inside its frame: `dial_values[0]` with the hairline
     /// border's inset taken off every edge, so the frame the page paints stays
     /// visible around the child instead of being covered by it.
@@ -1784,8 +1792,8 @@ fn dial_param_metrics(card_l: f32, card_r: f32, s: f32) -> ParamStrip {
     // page that may fold, and it folds downwards, not into a scroll.
     let wide = ctrl_w >= DIAL_ROW_WIDE * s;
     let group_rows = if wide { 1 } else { 2 };
-    let group_units = 5.0 + 2.0 * group_rows as f32;
-    let group_gaps = 6.0 + 2.0 * (group_rows as f32 - 1.0);
+    let group_units = 6.0 + 2.0 * group_rows as f32;
+    let group_gaps = 7.0 + 2.0 * (group_rows as f32 - 1.0);
     let h = DIAL_PARAM_PAD * 2.0 * s
         + group_units * DIAL_ROW_H * s
         + group_gaps * DIAL_ROW_GAP * s;
@@ -1805,13 +1813,13 @@ fn dial_param_metrics(card_l: f32, card_r: f32, s: f32) -> ParamStrip {
     }
 }
 
-/// Lay the strip's seven rows on its card. `top` is the card's own top, so the
+/// Lay the strip's eight rows on its card. `top` is the card's own top, so the
 /// caller decides whether the strip hangs under the list or under the glass.
 fn dial_params(l: &mut Layout, m: &ParamStrip, top: f32, s: f32) {
     l.dial_param_card = band(m.card_l, m.card_r, top, m.h);
     let row_step = DIAL_ROW_H + DIAL_ROW_GAP;
     let mut py = top + DIAL_PARAM_PAD * s;
-    for at in 1..=DIAL_POSITION_ROW {
+    for at in 1..=DIAL_ROTATE_ROW {
         let rows_here = if at == DIAL_ANIM_ROW { m.group_rows } else { 1 };
         let h = rows_here as f32 * DIAL_ROW_H * s
             + (rows_here - 1) as f32 * DIAL_ROW_GAP * s;
@@ -1866,7 +1874,8 @@ fn dial_params(l: &mut Layout, m: &ParamStrip, top: f32, s: f32) {
                 let (value, first) = match at {
                     DIAL_RADIUS_ROW => (0, 0),
                     DIAL_SEAM_ROW => (1, 2),
-                    _ => (2, 4),
+                    DIAL_LIMIT_ROW => (2, 4),
+                    _ => (3, 6),
                 };
                 let cy = cell_row(0);
                 l.dial_steps[first] = band(m.ctrl_x0, m.ctrl_x0 + m.step_w, cy, FIELD_H * s);
@@ -2399,13 +2408,14 @@ pub fn open(
             wheel_theme: settings.wheel_theme,
             wheel_accent: settings.wheel_accent,
             wheel_seam: settings.wheel_seam,
+            wheel_rotate: settings.wheel_rotate,
             colour_scheme: settings.colour_scheme,
             wheel_open_ms: settings.wheel_open_ms,
             wheel_limit: settings.wheel_limit,
             dial_order: settings.dial_order,
             activate_pos: settings.activate_pos,
             dial_cells: [HWND::default(); DIAL_CELLS],
-            dial_steps: [HWND::default(); 6],
+            dial_steps: [HWND::default(); 8],
             dial_pool: Vec::new(),
             dial_search: HWND::default(),
             radius_edit: HWND::default(),
@@ -2661,7 +2671,7 @@ impl State {
                 self.captions.push((cell, *key));
                 self.slots.push((SEC_DIAL, cell));
             }
-            for (at, glyph) in ["−", "+", "−", "+", "−", "+"].iter().enumerate() {
+            for (at, glyph) in ["−", "+", "−", "+", "−", "+", "−", "+"].iter().enumerate() {
                 let step = self.button(
                     parent,
                     glyph,
@@ -3242,6 +3252,14 @@ impl State {
                         F_TITLE,
                         INK,
                         l.dial_values[2],
+                        DT_VCENTER | DT_CENTER,
+                    );
+                    self.text(
+                        hdc,
+                        &format!("{:.0}°", self.wheel_rotate),
+                        F_TITLE,
+                        INK,
+                        l.dial_values[3],
                         DT_VCENTER | DT_CENTER,
                     );
                     // The search field is a system EDIT so typing and IME come
@@ -4064,7 +4082,11 @@ impl State {
                     // Every pair is minus first, plus second - the same order
                     // the two buttons are laid out in.
                     let d: i64 = if at % 2 == 0 { -1 } else { 1 };
-                    if at >= 4 {
+                    if at >= 6 {
+                        self.wheel_rotate =
+                            (self.wheel_rotate + d as f32 * 5.0).rem_euclid(360.0);
+                        let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[3]), false);
+                    } else if at >= 4 {
                         self.wheel_limit = (self.wheel_limit as i64 + d).clamp(
                             settings::WHEEL_LIMIT_MIN as i64,
                             settings::WHEEL_LIMIT_MAX as i64,
@@ -4257,6 +4279,7 @@ impl State {
         settings.wheel_theme = self.wheel_theme;
         settings.wheel_accent = self.wheel_accent;
         settings.wheel_seam = self.wheel_seam;
+        settings.wheel_rotate = self.wheel_rotate;
         settings.colour_scheme = self.colour_scheme;
         settings.wheel_radius = self.wheel_radius;
         settings.wheel_dead = self.wheel_dead;
@@ -4312,6 +4335,7 @@ impl State {
             self.wheel_accent,
             self.wheel_radius.to_bits(),
             self.wheel_seam.to_bits(),
+            self.wheel_rotate.to_bits(),
             self.wheel_open_ms,
             self.wheel_limit,
             self.dial_order,
@@ -4398,6 +4422,7 @@ impl State {
         let mut settings = (*self.app).applied_settings();
         settings.wheel_accent = self.wheel_accent;
         settings.wheel_seam = self.wheel_seam;
+        settings.wheel_rotate = self.wheel_rotate;
         settings.wheel_radius = self.wheel_radius;
         settings.wheel_dead = self.wheel_dead;
         settings.wheel_open_ms = self.wheel_open_ms;
@@ -5117,6 +5142,7 @@ impl State {
             wheel_theme: self.wheel_theme,
             wheel_accent: self.wheel_accent,
             wheel_seam: self.wheel_seam,
+            wheel_rotate: self.wheel_rotate,
             colour_scheme: self.colour_scheme,
             wheel_open_ms: self.wheel_open_ms,
             wheel_limit: self.wheel_limit,
@@ -5136,11 +5162,12 @@ impl State {
         self.trigger_button = s.trigger_button;
         self.trigger_notice = None;
         self.wheel_radius = s.wheel_radius;
+        self.wheel_seam = s.wheel_seam;
+        self.wheel_rotate = s.wheel_rotate;
         self.set_radius_text();
         self.wheel_dead = s.wheel_dead;
         self.wheel_theme = s.wheel_theme;
         self.wheel_accent = s.wheel_accent;
-        self.wheel_seam = s.wheel_seam;
         self.colour_scheme = s.colour_scheme;
         self.wheel_open_ms = s.wheel_open_ms;
         // The limit is part of what an apply either took or refused. Leaving it
@@ -5240,8 +5267,8 @@ impl State {
         }
     }
 
-    /// Which of the six dial arrows have room to move: floor first, ceiling
-    /// second, for the three rows they belong to.
+    /// Which of the eight dial arrows have room to move: floor first, ceiling
+    /// second, for the four rows they belong to.
     unsafe fn refresh_steppers(&self) {
         let room = [
             self.wheel_radius > RADIUS_MIN,
@@ -5250,6 +5277,8 @@ impl State {
             self.wheel_seam < settings::WHEEL_SEAM_MAX,
             self.wheel_limit > settings::WHEEL_LIMIT_MIN,
             self.wheel_limit < settings::WHEEL_LIMIT_MAX,
+            true,
+            true,
         ];
         for (at, hwnd) in self.dial_steps.iter().enumerate() {
             if let Some(on) = room.get(at) {

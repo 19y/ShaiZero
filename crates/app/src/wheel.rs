@@ -150,6 +150,9 @@ struct Wheel {
     theme: u32,
     accent: u32,
     seam: f32,
+    /// Degrees clockwise the whole dial is turned, so the user can put the first
+    /// sector where their hand expects it.
+    rotate: f32,
     open_ms: f32,
     /// How many windows are drawn, and whether favourites come first. The dial is
     /// a quick target: the rest of the desktop stays in the panel's list.
@@ -192,6 +195,7 @@ impl Wheel {
             theme: crate::settings::WHEEL_THEME_DEFAULT,
             accent: crate::settings::WHEEL_ACCENT_DEFAULT,
             seam: crate::settings::WHEEL_SEAM_DEFAULT,
+            rotate: crate::settings::WHEEL_ROTATE_DEFAULT,
             open_ms: crate::settings::WHEEL_OPEN_MS_DEFAULT as f32,
             limit: crate::settings::WHEEL_LIMIT_DEFAULT,
             order: crate::settings::DIAL_ORDER_DEFAULT,
@@ -763,6 +767,7 @@ pub fn reconfigure(settings: &Settings) {
         w.theme = settings.wheel_theme;
         w.accent = settings.wheel_accent;
         w.seam = settings.wheel_seam;
+        w.rotate = settings.wheel_rotate;
         w.open_ms = settings.wheel_open_ms as f32;
         w.limit = settings.wheel_limit;
         w.order = settings.dial_order;
@@ -1684,7 +1689,7 @@ pub fn snapshot_of(
         };
         seats.push(PreviewSeat {
             ring: slot.ring,
-            bearing: slot.bearing,
+            bearing: (slot.bearing + settings.wheel_rotate).rem_euclid(360.0),
             span: slot.span,
             base_accent: base,
             accent: tinted,
@@ -1998,6 +2003,7 @@ fn build() {
     let pid = std::process::id();
     let theme = with(|w| w.theme);
     let accent = with(|w| w.accent);
+    let rotate = with(|w| w.rotate);
     let front = window::foreground().map(window::raw_of);
     // Struck-off applications go before the seating and before the count, so a
     // window the user took off the dial neither takes a sector nor leaves a ring
@@ -2180,7 +2186,7 @@ fn build() {
             accent: tinted,
             ring: slot.ring,
             pos: slot.pos,
-            bearing: slot.bearing,
+            bearing: (slot.bearing + rotate).rem_euclid(360.0),
             span: slot.span,
             current: info.hwnd == front.unwrap_or(0),
             // The pin feature is cut, so no sector ever draws the nail. The

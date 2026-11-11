@@ -58,16 +58,22 @@ pub const WHEEL_PALETTE_MAX: u32 = 3;
 pub const WHEEL_STYLE_DEFAULT: u32 = 0;
 pub const WHEEL_STYLE_MAX: u32 = 2;
 /// The seven named looks the dial can wear: minimal outline, dark glass, glow,
-/// tactile card, self-lit neon, paper card and the site's cyan outline.
-/// `0` is the outline the dial now ships with.
-pub const WHEEL_THEME_DEFAULT: u32 = 0;
+/// tactile card, self-lit neon, paper card and the cyan "Aurora" look from the
+/// project page. `6` is the look the dial ships with.
+pub const WHEEL_THEME_DEFAULT: u32 = 6;
 pub const WHEEL_THEME_MAX: u32 = 6;
 /// How loud the sectors are: 0 soft, 1 medium, 2 vivid. Only the accent colour
 /// moves - the plate, seams, strokes and shadows belong to the theme.
 pub const WHEEL_ACCENT_DEFAULT: u32 = 1;
 pub const WHEEL_ACCENT_MAX: u32 = 2;
-pub const WHEEL_SEAM_DEFAULT: f32 = 5.0;
+/// The dial ships with its sectors touching: the seam is the air between them,
+/// and zero is the flat, page-like look.
+pub const WHEEL_SEAM_DEFAULT: f32 = 0.0;
 pub const WHEEL_SEAM_MAX: f32 = 16.0;
+/// The whole dial can be turned so its first sector sits where the hand expects
+/// it; degrees clockwise from 12 o'clock.
+pub const WHEEL_ROTATE_DEFAULT: f32 = 0.0;
+pub const WHEEL_ROTATE_MAX: f32 = 359.0;
 pub const WHEEL_OPEN_MS_DEFAULT: u32 = 180;
 pub const WHEEL_OPEN_MS_MAX: u32 = 400;
 /// How many windows the dial draws. The wheel is a quick target, not a wall of
@@ -228,13 +234,15 @@ pub struct Settings {
     pub wheel_palette: u32,
     pub wheel_style: u32,
     /// The named look: 0 minimal outline, 1 dark glass, 2 glow, 3 tactile card,
-    /// 4 neon, 5 paper card. This is what the renderer reads; the palette and
-    /// style indexes stay only so an older settings file still loads.
+    /// 4 neon, 5 paper card, 6 Aurora. This is what the renderer reads; the
+    /// palette and style indexes stay only so an older settings file still loads.
     pub wheel_theme: u32,
     /// How loud the sectors are, 0 soft to 2 vivid. The structure of the theme -
     /// plate, seams, strokes, shadows - is not touched by it.
     pub wheel_accent: u32,
     pub wheel_seam: f32,
+    /// Degrees clockwise the whole dial is turned from its built-in bearing.
+    pub wheel_rotate: f32,
     /// The chosen rarity-colour preset. 0 = off (auto palette), 1 = Hawkeye
     /// red/gold/violet/blue/green, 2 = Classic cobalt/teal/violet/orange/rose.
     /// Scheme also gives the top favourite windows a wider slice automatically.
@@ -431,10 +439,12 @@ pub struct Draft {
     pub trigger_button: u8,
     /// The dial's named look, accent loudness, sector spacing and open animation.
     /// The named look the renderer follows: 0 outline, 1 glass, 2 glow, 3 card,
-    /// 4 neon, 5 paper, 6 site.
+    /// 4 neon, 5 paper, 6 Aurora.
     pub wheel_theme: u32,
     pub wheel_accent: u32,
     pub wheel_seam: f32,
+    /// Degrees clockwise the whole dial is turned from its built-in bearing.
+    pub wheel_rotate: f32,
     pub colour_scheme: u32,
     pub wheel_open_ms: u32,
     /// The dial's window limit and the order the windows arrive in.
@@ -472,6 +482,7 @@ impl Default for Settings {
             wheel_theme: WHEEL_THEME_DEFAULT,
             wheel_accent: WHEEL_ACCENT_DEFAULT,
             wheel_seam: WHEEL_SEAM_DEFAULT,
+            wheel_rotate: WHEEL_ROTATE_DEFAULT,
             colour_scheme: 0,
             wheel_open_ms: WHEEL_OPEN_MS_DEFAULT,
             wheel_limit: WHEEL_LIMIT_DEFAULT,
@@ -509,6 +520,7 @@ impl Default for Draft {
             wheel_theme: s.wheel_theme,
             wheel_accent: s.wheel_accent,
             wheel_seam: s.wheel_seam,
+            wheel_rotate: s.wheel_rotate,
             colour_scheme: s.colour_scheme,
             wheel_open_ms: s.wheel_open_ms,
             wheel_limit: s.wheel_limit,
@@ -626,7 +638,7 @@ impl Settings {
              lang={}\nexcluded={}\n\
              wheel={}\ntrigger_mods={}\ntrigger_button={}\ntrigger_key={}\n\
              wheel_radius={:.1}\nwheel_dead={:.2}\ndrag_threshold={}\n\
-             wheel_palette={}\nwheel_style={}\nwheel_theme={}\nwheel_accent={}\nwheel_seam={:.1}\ncolour_scheme={}\nwheel_open_ms={}\n\
+             wheel_palette={}\nwheel_style={}\nwheel_theme={}\nwheel_accent={}\nwheel_seam={:.1}\nwheel_rotate={:.1}\ncolour_scheme={}\nwheel_open_ms={}\n\
              wheel_limit={}\ndial_order={}\nactivate_pos={}\n\
              pinned_slots={}\nfavorite_slots={}\noff_dial={}\nwindow_tags={}\nwindow_colors={}\nwindow_weights={}\n\
              seat_order={}\nbound_seats={}\nparked_seats={}\nseat_hwnds={}\n\
@@ -650,6 +662,7 @@ impl Settings {
             self.wheel_theme,
             self.wheel_accent,
             self.wheel_seam,
+            self.wheel_rotate,
             self.colour_scheme,
             self.wheel_open_ms,
             self.wheel_limit,
@@ -683,6 +696,7 @@ impl Settings {
         self.wheel_theme = self.wheel_theme.min(WHEEL_THEME_MAX);
         self.wheel_accent = self.wheel_accent.min(WHEEL_ACCENT_MAX);
         self.wheel_seam = clamp_seam(self.wheel_seam);
+        self.wheel_rotate = clamp_rotation(self.wheel_rotate);
         self.colour_scheme = self
             .colour_scheme
             .min(shaiwin_core::theme::SCHEME_MAX as u32);
@@ -1189,6 +1203,7 @@ fn apply_line(s: &mut Settings, key: &str, value: &str) -> bool {
             );
         }
         "wheel_seam" => s.wheel_seam = parse_wheel_seam(value),
+        "wheel_rotate" => s.wheel_rotate = parse_wheel_rotate(value),
         "wheel_open_ms" => {
             s.wheel_open_ms = parse_index(value, WHEEL_OPEN_MS_MAX, WHEEL_OPEN_MS_DEFAULT)
         }
@@ -1289,6 +1304,14 @@ fn clamp_seam(value: f32) -> f32 {
         value.clamp(0.0, WHEEL_SEAM_MAX)
     } else {
         WHEEL_SEAM_DEFAULT
+    }
+}
+
+fn clamp_rotation(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, WHEEL_ROTATE_MAX)
+    } else {
+        WHEEL_ROTATE_DEFAULT
     }
 }
 
@@ -1432,6 +1455,11 @@ pub fn parse_wheel_seam(value: &str) -> f32 {
     } else {
         WHEEL_SEAM_DEFAULT
     }
+}
+
+/// The whole dial's turn as the file states it, in degrees clockwise.
+pub fn parse_wheel_rotate(value: &str) -> f32 {
+    clamp_rotation(read_number(value))
 }
 
 /// A number the file could hold. Text that is not one, and a number that is not
@@ -2241,13 +2269,15 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
             off_dial: vec![0x1204, 0x3b0160],
             seat_hwnds: vec![0x1204, 0x55a20],
             activate_pos: 1,
+            wheel_rotate: 45.0,
             lang: "en-US".to_string(),
             ..Settings::default()
         };
         let text = s.render();
         let (back, recognised) = parse(&text);
-        assert_eq!(recognised, 36, "every line this app writes is one it reads");
+        assert_eq!(recognised, 37, "every line this app writes is one it reads");
         assert_eq!(back.activate_pos, 1, "and the position survives the file");
+        assert_eq!(back.wheel_rotate, 45.0, "and the dial's turn survives");
         assert_eq!(
             back.favorites, s.favorites,
             "and in the order it was written"

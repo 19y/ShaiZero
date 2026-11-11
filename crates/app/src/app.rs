@@ -1197,6 +1197,7 @@ impl App {
             wheel_theme,
             wheel_accent,
             wheel_seam,
+            wheel_rotate,
             colour_scheme,
             wheel_open_ms,
             wheel_limit,
@@ -1235,6 +1236,7 @@ impl App {
         self.settings.wheel_theme = wheel_theme;
         self.settings.wheel_accent = wheel_accent;
         self.settings.wheel_seam = wheel_seam;
+        self.settings.wheel_rotate = wheel_rotate;
         self.settings.colour_scheme = colour_scheme;
         self.settings.wheel_open_ms = wheel_open_ms;
         self.settings.reduced_motion = reduced_motion;

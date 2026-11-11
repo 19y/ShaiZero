@@ -456,9 +456,11 @@ fn stroke_path(
 // rather than on the desktop the rest of the time.
 
 /// How far the highlighted sector leaves the dial, and how much bigger it gets.
-/// Both are the reference implementation's numbers (design §1).
-pub const WHEEL_POP: f32 = 8.0;
-const WHEEL_POP_SCALE: f32 = 1.025;
+/// Zero: the highlight is colour and light only. A sector that shifts under the
+/// pointer makes the dial feel like it is dodging, and the moving seam changes
+/// the gradient under a still cursor.
+pub const WHEEL_POP: f32 = 0.0;
+const WHEEL_POP_SCALE: f32 = 1.0;
 // The circumferential gap between two neighbouring sectors, in logical pixels
 // measured at the sector's own radius. `core::wheel::RING_GAP` is the radial
 // seam; this is what keeps a ring of six windows from reading as one band.
