@@ -70,6 +70,10 @@ pub enum Button {
     Left,
     Right,
     Middle,
+    /// The first side button: `XBUTTON1`, usually the browser's Back key.
+    X1,
+    /// The second side button: `XBUTTON2`, usually Forward.
+    X2,
 }
 
 /// What the trigger is aimed with: a mouse button, or any key on the keyboard.

@@ -706,7 +706,7 @@ impl Settings {
         if is_modifier_vk(self.trigger_vk) {
             self.trigger_vk = 0;
         }
-        self.trigger_button = self.trigger_button.min(2);
+        self.trigger_button = self.trigger_button.min(4);
         self.fav_vk &= 0xFF;
         self.panel_vk &= 0xFF;
         // One chord, one action. Two shortcuts are registered with the desktop;
@@ -1208,6 +1208,8 @@ fn apply_line(s: &mut Settings, key: &str, value: &str) -> bool {
             s.trigger_button = match value.trim().to_ascii_lowercase().as_str() {
                 "right" => 1,
                 "middle" => 2,
+                "back" | "x1" | "side1" => 3,
+                "forward" | "x2" | "side2" => 4,
                 _ => 0,
             }
         }
@@ -1788,10 +1790,11 @@ fn unescape_field(text: &str) -> String {
 /// Which keys and which button open the dial, in the shape the gesture machine
 /// is built from.
 ///
-/// One thing is refused on the way: a trigger with no modifier and no key at
-/// all asks for every ordinary drag, so that empty gesture falls back to the
-/// shipped `Ctrl`. A key on its own is allowed - a mouse side button remapped to
-/// a key is exactly the single-press trigger somebody may want.
+/// One thing is refused on the way: a trigger with no modifier, no key and an
+/// ordinary mouse button asks for every drag, so that empty gesture falls back to
+/// the shipped `Ctrl`. A key on its own is allowed - a mouse side button remapped
+/// to a key is exactly the single-press trigger somebody may want - and so is a
+/// side button (`Back`/`Forward`), which has no everyday click to steal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TriggerProblem {
     /// Not a usable gesture at all.
@@ -1809,9 +1812,9 @@ pub fn trigger_for(mods: u32, vk: u32, button: u8, threshold: i32) -> Trigger {
         shift: mods & MOD_SHIFT != 0,
         win: mods & MOD_WIN != 0,
     };
-    // A bare mouse drag would swallow every click on the desktop; a bare key is
-    // the user's own choice, so a single key with no modifier is left alone.
-    if !(want.alt || want.ctrl || want.shift || want.win) && vk == 0 {
+    // A bare left/right/middle drag would swallow every click on the desktop; a
+    // bare key or a side button is the user's own choice and is left alone.
+    if !(want.alt || want.ctrl || want.shift || want.win) && vk == 0 && button < 3 {
         want = Mods::ctrl();
     }
     Trigger {
@@ -1829,6 +1832,8 @@ fn button_for(button: u8) -> Button {
     match button {
         1 => Button::Right,
         2 => Button::Middle,
+        3 => Button::X1,
+        4 => Button::X2,
         _ => Button::Left,
     }
 }
@@ -1837,6 +1842,8 @@ fn button_name(button: u8) -> &'static str {
     match button {
         1 => "Right",
         2 => "Middle",
+        3 => "Back",
+        4 => "Forward",
         _ => "Left",
     }
 }
@@ -1889,8 +1896,8 @@ pub fn trigger_problem(
     if vk != 0 && is_modifier_vk(vk) {
         return Some(TriggerProblem::Invalid);
     }
-    if vk == 0 && mods == 0 {
-        // A bare mouse button would take every click on the desktop.
+    if vk == 0 && mods == 0 && button < 3 {
+        // A bare left/right/middle button would take every click on the desktop.
         return Some(TriggerProblem::Invalid);
     }
     if vk != 0
@@ -1902,7 +1909,6 @@ pub fn trigger_problem(
     if mods & MOD_WIN != 0 || (vk != 0 && mods == 0) {
         return Some(TriggerProblem::Risky);
     }
-    let _ = button;
     None
 }
 
@@ -2169,6 +2175,9 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         let s = Settings::default();
         // A bare click is not a gesture.
         assert_eq!(trigger_problem(0, 0, 0, &s), Some(TriggerProblem::Invalid));
+        // A side button alone has no everyday click to steal and is allowed.
+        assert_eq!(trigger_problem(0, 0, 3, &s), None);
+        assert_eq!(trigger_problem(0, 0, 4, &s), None);
         // A single key is allowed for mouse-side-button remaps; a letter warns
         // because it will also fire while typing.
         assert_eq!(trigger_problem(0, 0x41, 0, &s), Some(TriggerProblem::Risky));
@@ -2181,6 +2190,22 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         let fav = trigger_problem(MOD_CONTROL, VK_2, 0, &s);
         assert_eq!(fav, Some(TriggerProblem::Conflict));
         assert_eq!(trigger_problem(MOD_ALT, 0, 0, &s), None);
+    }
+
+    #[test]
+    fn a_side_button_alone_is_a_trigger() {
+        let s = Settings {
+            trigger_mods: 0,
+            trigger_vk: 0,
+            trigger_button: 3,
+            ..Settings::default()
+        };
+        let (back, _) = parse(&s.render());
+        assert_eq!(back.trigger_button, 3);
+        assert_eq!(back.trigger().input, TriggerInput::Mouse(Button::X1));
+        assert!(!back.trigger().mods.alt && !back.trigger().mods.ctrl);
+        assert_eq!(trigger_label(0, 0, 3), "Back");
+        assert_eq!(trigger_label(0, 0, 4), "Forward");
     }
 
     #[test]

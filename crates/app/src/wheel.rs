@@ -893,6 +893,8 @@ fn trigger_button() -> Option<MouseButton> {
         TriggerInput::Mouse(Button::Left) => Some(MouseButton::Left),
         TriggerInput::Mouse(Button::Right) => Some(MouseButton::Right),
         TriggerInput::Mouse(Button::Middle) => Some(MouseButton::Middle),
+        TriggerInput::Mouse(Button::X1) => Some(MouseButton::X1),
+        TriggerInput::Mouse(Button::X2) => Some(MouseButton::X2),
         TriggerInput::Key(_) => None,
     }
 }
@@ -946,6 +948,8 @@ fn press(
         MouseButton::Left => Button::Left,
         MouseButton::Right => Button::Right,
         MouseButton::Middle => Button::Middle,
+        MouseButton::X1 => Button::X1,
+        MouseButton::X2 => Button::X2,
     };
     if with(|w| w.open) {
         // The dial is on screen, so anything else the user presses is aimed at it:

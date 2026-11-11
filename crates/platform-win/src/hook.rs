@@ -48,7 +48,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_MOUSE, KEYEVENTF_KEYUP,
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
     MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_LCONTROL, VK_LMENU,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, MOUSE_EVENT_FLAGS,
+    VIRTUAL_KEY, VK_LCONTROL, VK_LMENU,
     VK_LSHIFT, VK_LWIN, VK_NONAME, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -57,7 +58,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOT, HHOOK, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 use crate::monitor;
@@ -102,6 +103,10 @@ pub enum MouseButton {
     Left,
     Right,
     Middle,
+    /// `XBUTTON1`, usually the browser's Back key on the side of the mouse.
+    X1,
+    /// `XBUTTON2`, usually Forward.
+    X2,
 }
 
 /// Anything the hook noticed. One type for both hooks so the policy has a single
@@ -207,8 +212,10 @@ fn mods_now() -> Modifiers {
     }
 }
 
-/// Which button a mouse message names, and whether it is the press.
-fn button_of(msg: u32) -> Option<(MouseButton, bool)> {
+/// Which button a mouse message names, and whether it is the press. `mouse_data`
+/// is the low-level hook's `mouseData`, whose high word says which of the two
+/// side buttons moved.
+fn button_of(msg: u32, mouse_data: u32) -> Option<(MouseButton, bool)> {
     if msg == WM_LBUTTONDOWN {
         Some((MouseButton::Left, true))
     } else if msg == WM_LBUTTONUP {
@@ -221,6 +228,14 @@ fn button_of(msg: u32) -> Option<(MouseButton, bool)> {
         Some((MouseButton::Middle, true))
     } else if msg == WM_MBUTTONUP {
         Some((MouseButton::Middle, false))
+    } else if msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP {
+        // XBUTTON1 is 1, XBUTTON2 is 2, both in the high word of mouseData.
+        let button = if (mouse_data >> 16) & 0xFFFF == 2 {
+            MouseButton::X2
+        } else {
+            MouseButton::X1
+        };
+        Some((button, msg == WM_XBUTTONDOWN))
     } else {
         None
     }
@@ -421,7 +436,7 @@ fn decide_mouse(ms: &MSLLHOOKSTRUCT, msg: u32) -> Verdict {
         x: ms.pt.x,
         y: ms.pt.y,
     };
-    if let Some((button, is_down)) = button_of(msg) {
+    if let Some((button, is_down)) = button_of(msg, ms.mouseData) {
         LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
         if is_down && (DISABLED.load(Ordering::Acquire) || SUSPENDED.load(Ordering::Acquire)) {
             // The switch-off is honoured here rather than in the policy so a
@@ -549,6 +564,21 @@ fn button_input(flags: MOUSE_EVENT_FLAGS) -> INPUT {
     mouse_input(0, 0, flags)
 }
 
+/// A side button carries which one it is in `mouseData`, not in its flags.
+fn xbutton_input(which: u16, flags: MOUSE_EVENT_FLAGS) -> INPUT {
+    let mut input = button_input(flags);
+    input.Anonymous.mi.mouseData = which as u32;
+    input
+}
+
+fn button_event(button: MouseButton, flags: MOUSE_EVENT_FLAGS) -> INPUT {
+    match button {
+        MouseButton::X1 => xbutton_input(1, flags),
+        MouseButton::X2 => xbutton_input(2, flags),
+        _ => button_input(flags),
+    }
+}
+
 /// One event, inserted. `SendInput` answers with how many it actually took, so a
 /// refusal is a number rather than a hope.
 fn send(input: INPUT) -> bool {
@@ -560,6 +590,7 @@ fn press_flags(button: MouseButton) -> (MOUSE_EVENT_FLAGS, MOUSE_EVENT_FLAGS) {
         MouseButton::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
         MouseButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
         MouseButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        MouseButton::X1 | MouseButton::X2 => (MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP),
     }
 }
 
@@ -583,8 +614,8 @@ pub fn replay_click(pt: Pt, button: MouseButton) -> bool {
         normalise(pt.x, left, width),
         normalise(pt.y, top, height),
     ));
-    let pressed = placed && send(button_input(down_flag));
-    let released = pressed && send(button_input(up_flag));
+    let pressed = placed && send(button_event(button, down_flag));
+    let released = pressed && send(button_event(button, up_flag));
     if got_here && (placed || pressed || released) {
         // Whatever else happened, the cursor goes back where the user left it.
         let _ = send(move_input(

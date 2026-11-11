@@ -7133,7 +7133,8 @@ struct Key {
     state: *mut State,
     mods: u32,
     vk: u32,
-    /// The mouse button recorded by a trigger field (0 left, 1 right, 2 middle).
+    /// The mouse button recorded by a trigger field (0 left, 1 right, 2 middle,
+    /// 3 back, 4 forward).
     button: u8,
     kind: KeyKind,
     capturing: bool,
@@ -7210,6 +7211,17 @@ unsafe extern "system" fn key_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 LRESULT(0)
             }
             0x0205 | 0x0208 => LRESULT(0),
+            // 0x020B / 0x020C: a side button. The high word of wParam says which
+            // one (XBUTTON1 or XBUTTON2), so a mouse with Back/Forward keys can be
+            // the dial's trigger without any driver remapping.
+            0x020B => {
+                if ctrl.kind == KeyKind::Trigger && ctrl.capturing && !ctrl.await_release {
+                    let which = ((wp.0 >> 16) & 0xFFFF) as u8;
+                    ctrl.record_mouse(if which == 2 { 4 } else { 3 });
+                }
+                LRESULT(0)
+            }
+            0x020C => LRESULT(0),
             WM_KEYDOWN => {
                 let key = wp.0 as u32;
                 if ctrl.capturing {
@@ -7526,6 +7538,8 @@ fn trigger_text(mods: u32, vk: u32, button: u8) -> String {
     parts.push(match button {
         1 => t("settings_wheel_right"),
         2 => t("settings_wheel_middle"),
+        3 => t("settings_wheel_back"),
+        4 => t("settings_wheel_forward"),
         _ => t("settings_wheel_left"),
     });
     parts.join("+")
@@ -8000,6 +8014,7 @@ fn refuse(draft: &settings::Draft) -> Option<&'static str> {
         & (settings::MOD_CONTROL | settings::MOD_ALT | settings::MOD_SHIFT | settings::MOD_WIN)
         == 0
         && draft.trigger_vk == 0
+        && draft.trigger_button < 3
     {
         return Some("settings_wheel_needs_mod");
     }
@@ -8473,6 +8488,14 @@ mod tests {
             ..settings::Draft::default()
         };
         assert_eq!(refuse(&one_key), None);
+        // A side button is the other single press the panel must accept.
+        let side = settings::Draft {
+            trigger_mods: 0,
+            trigger_vk: 0,
+            trigger_button: 3,
+            ..settings::Draft::default()
+        };
+        assert_eq!(refuse(&side), None);
         // Any one of the four counts, and there is no separate switch to forget.
         for bit in [
             settings::MOD_CONTROL,
