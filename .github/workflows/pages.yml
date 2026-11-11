@@ -34,14 +34,7 @@ jobs:
           cp index.html robots.txt .nojekyll _site/
           cp assets/site/donate-qr.png _site/assets/site/
 
-      # 站点开启 GitHub Pages 后统一用 Actions 发布；已存在时切换 build_type。
-      - name: Point Pages at Actions
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/${{ github.repository }}/pages" -f build_type=workflow >/dev/null 2>&1 \
-            || gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow >/dev/null
-
+      # 仓库的 Pages 已设为 GitHub Actions 发布，直接上传静态文件。
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
