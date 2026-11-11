@@ -1933,29 +1933,31 @@ pub fn render_thumb(
 
 /// How far each theme pulls an application's accent, by accent row: soft,
 /// medium, vivid. Rows are the theme ids; the value is the amount mixed towards
-/// the theme's own family (grey, white, paper). Only the sector colour reads
-/// this - plate, seams, strokes and shadows are structure and never move.
-const ACCENT_MIX: [[f32; 3]; 6] = [
+/// the theme's own family (grey, white, paper, cyan). Only the sector colour
+/// reads this - plate, seams, strokes and shadows are structure and never move.
+const ACCENT_MIX: [[f32; 3]; 7] = [
     [0.62, 0.55, 0.66],
     [0.00, 0.00, 0.10],
     [0.08, 0.18, 0.28],
     [0.10, 0.16, 0.26],
     [0.00, 0.00, 0.14],
     [0.30, 0.16, 0.00],
+    [0.45, 0.35, 0.25],
 ];
 
 /// A sector's colour under the chosen theme and accent row. The application's
 /// own accent is the default; outline pulls every sector towards one family so
 /// the dial reads as one object instead of a bag of brands, glow and neon pull
-/// each accent towards white, and paper warms it towards the sheet. Blending is
-/// a plain linear mix.
+/// each accent towards white, paper warms it towards the sheet and the site
+/// pulls towards its cyan. Blending is a plain linear mix.
 fn dial_accent(base: Rgb, theme: u32, accent: u32) -> Rgb {
     let level = (accent as usize).min(2);
-    let t = ACCENT_MIX[(theme as usize).min(5)][level];
+    let t = ACCENT_MIX[(theme as usize).min(6)][level];
     let towards = match theme {
         0 => Rgb::new(150, 160, 176),
         3 => Rgb::new(232, 220, 200),
         5 => Rgb::new(248, 245, 238),
+        6 => Rgb::new(0, 229, 255),
         _ => Rgb::new(255, 255, 255),
     };
     let mixed = blend(base, towards, t);

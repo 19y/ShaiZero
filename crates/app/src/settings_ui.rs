@@ -149,11 +149,11 @@ const MOTION_ID: i32 = 311;
 const LOG_DOOR_ID: i32 = 312;
 /// 轮盘's cells are numbered by group: the accent row, the animation length and
 /// the order of the limited list, so a click reports both the group and the
-/// choice. The six themes are not cells: they are a filmstrip painted on the
+/// choice. The seven themes are not cells: they are a filmstrip painted on the
 /// picture card, where each thumbnail shows the look instead of naming it. The
 /// steppers that follow use their own base.
 const DIAL_CELL_BASE: i32 = 700;
-const DIAL_THEMES: usize = 6;
+const DIAL_THEMES: usize = 7;
 const DIAL_ACCENT_CELLS: usize = 3;
 const DIAL_ANIM_CELLS: usize = 4;
 /// The order the limited list arrives in: newest first, or favourites first.
@@ -180,7 +180,7 @@ const DIAL_POOL_TIMER: usize = 0x54;
 const DIAL_POOL_MS: u32 = 2000;
 const DIAL_TOAST_MS: u32 = 1600;
 const DIAL_STEP_BASE: i32 = 720;
-/// The six named looks. Each is a whole treatment - plate, fill, rim, glow,
+/// The seven named looks. Each is a whole treatment - plate, fill, rim, glow,
 /// shadow - not a tweak of the previous one, so a click is visible at once.
 /// The filmstrip paints these as thumbnails rather than as words.
 const DIAL_THEME_NAME: [&str; DIAL_THEMES] = [
@@ -190,6 +190,7 @@ const DIAL_THEME_NAME: [&str; DIAL_THEMES] = [
     "dial_theme_card",
     "dial_theme_neon2",
     "dial_theme_paper",
+    "dial_theme_site",
 ];
 /// How loud the sectors are. Only the sector colour moves; the filmstrip in the
 /// picture card shows the same theme at the chosen loudness.
@@ -914,9 +915,9 @@ struct State {
     /// change or when the section is entered. The desk is read to build it, so it
     /// is never rebuilt per paint: a window list is a slow thing to ask for.
     preview: Option<DialPreview>,
-    /// The six looks at filmstrip size, made through the same renderer as the
+    /// The seven looks at filmstrip size, made through the same renderer as the
     /// picture and the live dial. Cached against the desk and the accent row:
-    /// clicking a thumbnail must not rebuild six pictures to show it was taken.
+    /// clicking a thumbnail must not rebuild seven pictures to show it was taken.
     theme_thumbs: Option<ThemeThumbs>,
     theme_thumbs_key: (u32, u32, u32, usize, u32),
     /// When a thumbnail was clicked and which theme it asked for. The paint that
@@ -1462,7 +1463,7 @@ struct DialPreview {
     key: (u32, u32, u32, u32, u32, u32, u32, usize, u64),
 }
 
-/// The filmstrip's six pictures: one theme each, at the strip's size. A slot is
+/// The filmstrip's seven pictures: one theme each, at the strip's size. A slot is
 /// `None` when the renderer refused that theme, and the strip then draws the
 /// empty card instead of failing the page.
 struct ThemeThumbs {
@@ -1495,7 +1496,7 @@ struct Layout {
     /// 轮盘: the picture, its filmstrip, then the cells and the two steppers
     /// under it.
     dial_preview: RECT,
-    /// The filmstrip under the picture: six thumbnails, each drawn through the
+    /// The filmstrip under the picture: seven thumbnails, each drawn through the
     /// same renderer the dial itself uses. Clicking one is the choice.
     dial_strip: RECT,
     dial_themes: [RECT; DIAL_THEMES],
@@ -2602,7 +2603,7 @@ impl State {
             // selected cell is the stored value, so the page's own state cannot
             // drift from the settings it claims to be showing.
             let l = measure(SEC_DIAL, client.right, client.bottom, self.scale, offered);
-            // The six themes are not controls: the filmstrip is painted on the
+            // The seven themes are not controls: the filmstrip is painted on the
             // picture card by `paint_theme_strip`, and the press under it is
             // resolved against `l.dial_themes`. Only the accent row is a cell.
             for (at, key) in DIAL_ACCENT_NAME.iter().enumerate() {
@@ -3135,7 +3136,7 @@ impl State {
             let rebuilt = if l.section == SEC_DIAL {
                 let fresh = self.ensure_preview(&l);
                 // The filmstrip is rebuilt after the picture, from the same desk
-                // copy, so the six thumbnails and the big picture agree about
+                // copy, so the seven thumbnails and the big picture agree about
                 // which windows are on the dial.
                 let thumbs = self.ensure_theme_thumbs(&l);
                 fresh || thumbs
@@ -3643,10 +3644,10 @@ impl State {
         }
     }
 
-    /// The filmstrip: six cards under the picture, each carrying the look it
+    /// The filmstrip: seven cards under the picture, each carrying the look it
     /// would give the dial. The selected one takes an ink ring and its name in
-    /// ink; the others keep the card's soft edge, so the row reads as six frames
-    /// of the same film rather than six buttons.
+    /// ink; the others keep the card's soft edge, so the row reads as seven frames
+    /// of the same film rather than seven buttons.
     unsafe fn paint_theme_strip(&self, hdc: HDC, l: &Layout) {
         unsafe {
             let Some(thumbs) = self.theme_thumbs.as_ref() else {
@@ -4362,7 +4363,7 @@ impl State {
         true
     }
 
-    /// Make the filmstrip's six pictures again if the accent row or the desk
+    /// Make the filmstrip's seven pictures again if the accent row or the desk
     /// changed. Each one is `snapshot_of` with the theme overridden and drawn
     /// through the same `render_thumb` the live dial's renderer feeds, so a
     /// thumbnail is a promise the dial can keep.
@@ -7962,9 +7963,11 @@ fn warn_cut(state: &State) {
 /// app because the answer is a row of this panel going back where it came from,
 /// and only this window knows which row.
 ///
-/// A shortcut with no modifier is a bare keypress the app swallows; a dial with
-/// no modifier opens on every drag anywhere on the desktop. Both are worse than
-/// the change somebody meant, which is why the row is refused instead of clamped.
+/// A favourite or panel shortcut with no modifier is a bare keypress the app
+/// swallows; a dial with neither a modifier nor a key opens on every drag
+/// anywhere on the desktop. Both are worse than the change somebody meant, which
+/// is why the row is refused instead of clamped. A trigger key on its own is
+/// fine - a mouse side button mapped to a key is a legitimate single press.
 ///
 /// The machine falls back to Alt for a hand-written file; a panel does not offer
 /// a cell that silently means something else.
@@ -7996,6 +7999,7 @@ fn refuse(draft: &settings::Draft) -> Option<&'static str> {
     if draft.trigger_mods
         & (settings::MOD_CONTROL | settings::MOD_ALT | settings::MOD_SHIFT | settings::MOD_WIN)
         == 0
+        && draft.trigger_vk == 0
     {
         return Some("settings_wheel_needs_mod");
     }
@@ -8453,13 +8457,22 @@ mod tests {
             ..settings::Draft::default()
         };
         assert_eq!(refuse(&unset), None);
-        // The trigger is the only thing that opens the dial now, so an empty set
-        // of modifiers is a dial that can never open: that has to be refused.
+        // A trigger with neither a modifier nor a key is a dial that can never
+        // open: that has to be refused.
         let naked = settings::Draft {
             trigger_mods: 0,
+            trigger_vk: 0,
             ..settings::Draft::default()
         };
         assert_eq!(refuse(&naked), Some("settings_wheel_needs_mod"));
+        // A single trigger key is how a mouse side button remap arrives, so the
+        // panel must let it through without a modifier.
+        let one_key = settings::Draft {
+            trigger_mods: 0,
+            trigger_vk: 0x74,
+            ..settings::Draft::default()
+        };
+        assert_eq!(refuse(&one_key), None);
         // Any one of the four counts, and there is no separate switch to forget.
         for bit in [
             settings::MOD_CONTROL,

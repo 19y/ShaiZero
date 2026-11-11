@@ -3,487 +3,1263 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ShaiZero — 指尖一转，窗口即达</title>
-<meta name="description" content="按住 Alt 在桌面任意位置按下鼠标左键，十扇窗在指针下绽放。单 exe、绿色免安装、无需管理员权限的 Windows 窗口轮盘切换器。">
-<meta name="theme-color" content="#050608">
-<meta property="og:type" content="website">
-<meta property="og:title" content="ShaiZero — 指尖一转，窗口即达">
-<meta property="og:description" content="一个 Windows 窗口轮盘。按住 Alt + 左键，指针落在哪一格，松手，那个窗口就到前台。">
-<meta property="og:url" content="https://19y.github.io/ShaiZero/">
-<meta property="og:image" content="https://19y.github.io/ShaiZero/assets/site/usage.png">
-<meta property="og:site_name" content="ShaiZero">
-<meta property="og:locale" content="zh_CN">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="ShaiZero — 指尖一转，窗口即达">
-<meta name="twitter:description" content="按住 Alt + 左键，十扇窗在指针下展开。单 exe、绿色免安装的 Windows 窗口轮盘切换器。">
-<meta name="twitter:image" content="https://19y.github.io/ShaiZero/assets/site/usage.png">
-<link rel="canonical" href="https://19y.github.io/ShaiZero/">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ShaiZero","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10 1809+, Windows 11","description":"按住 Alt 与鼠标左键呼出窗口轮盘，滑向扇区松手即可切换窗口。单 exe、绿色免安装、无需管理员权限。","url":"https://19y.github.io/ShaiZero/","downloadUrl":"https://github.com/19y/ShaiZero/releases/latest","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/19y/ShaiZero/blob/main/LICENSE","author":{"@type":"Person","name":"19y"}}</script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23050608'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%23252b33' stroke-width='2'/%3E%3Cpath d='M32 11a21 21 0 0 1 18.2 10.5' fill='none' stroke='%23E9B56A' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M32 11a21 21 0 0 0-18.2 10.5' fill='none' stroke='%234C8DFF' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M14.6 41.8A21 21 0 0 0 32 53' fill='none' stroke='%232ED3A0' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M49.4 41.8A21 21 0 0 1 32 53' fill='none' stroke='%23FF8AC2' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23E9B56A'/%3E%3C/svg%3E">
-<link rel="preload" href="assets/site/fonts/chakra-petch-600.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="assets/site/fonts/chakra-petch-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/site/site.css">
+<title>ShaiZero · 轮盘式窗口切换</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --accent: #00e5ff;
+    --accent-soft: rgba(0, 229, 255, 0.18);
+    --accent-glow: rgba(0, 229, 255, 0.45);
+    --surface: rgba(20, 22, 30, 0.85);
+    --surface-strong: rgba(26, 28, 38, 0.94);
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e8eaf0;
+    --text-dim: rgba(232, 234, 240, 0.55);
+    --taskbar-h: 52px;
+    --radius-window: 12px;
+    --font: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: var(--font);
+    background: #07080c;
+    color: var(--text);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ============ 桌面 ============ */
+  #desktop { position: fixed; inset: 0; overflow: hidden; }
+
+  #wallpaper {
+    position: absolute; inset: -5%; z-index: 0;
+    background:
+      radial-gradient(ellipse 55% 60% at 22% 38%, rgba(0, 160, 200, 0.20), transparent 65%),
+      radial-gradient(ellipse 50% 55% at 78% 62%, rgba(100, 60, 200, 0.18), transparent 65%),
+      radial-gradient(ellipse 45% 50% at 55% 20%, rgba(0, 220, 255, 0.08), transparent 60%),
+      radial-gradient(ellipse 60% 60% at 40% 85%, rgba(20, 30, 80, 0.6), transparent 70%),
+      linear-gradient(135deg, #0a0c14 0%, #0d101e 35%, #0b0d18 65%, #070810 100%);
+    filter: saturate(1.15);
+    animation: wallpaperShift 30s ease-in-out infinite alternate;
+  }
+  @keyframes wallpaperShift {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(-1%, 0.8%) scale(1.02); }
+    100% { transform: translate(0.8%, -0.8%) scale(1.01); }
+  }
+  #wallpaper::after {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.016) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.016) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 75%);
+    pointer-events: none;
+  }
+
+  /* ============ 桌面图标 ============ */
+  #desktop-icons {
+    position: absolute; top: 20px; left: 20px;
+    z-index: 10000;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .desktop-icon {
+    width: 82px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 8px 4px; border-radius: 8px; cursor: pointer;
+    transition: background 0.15s;
+    background: transparent; border: none; font-family: var(--font);
+    text-decoration: none;
+  }
+  .desktop-icon:hover { background: rgba(255,255,255,0.07); }
+  .desktop-icon:active { background: rgba(255,255,255,0.12); }
+  .desktop-icon svg { width: 38px; height: 38px; }
+  .desktop-icon span {
+    font-size: 11px; color: var(--text);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    text-align: center; line-height: 1.3;
+  }
+
+  /* ============ 窗口通用 ============ */
+  #windows-layer { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
+
+  .window {
+    position: absolute;
+    width: 720px;
+    max-width: calc(100vw - 400px);
+    min-width: 480px;
+    height: 470px;
+    max-height: calc(100vh - var(--taskbar-h) - 60px);
+    background: var(--surface);
+    backdrop-filter: blur(28px) saturate(1.2);
+    -webkit-backdrop-filter: blur(28px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-window);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.04) inset;
+    display: flex; flex-direction: column; overflow: hidden;
+    pointer-events: auto;
+    transition: box-shadow 0.2s ease;
+  }
+  .window.active {
+    box-shadow: 0 24px 100px rgba(0,0,0,0.7), 0 0 0 0.5px rgba(0, 229, 255, 0.18) inset;
+  }
+  .window.hidden { display: none; }
+
+  .titlebar {
+    height: 40px; display: flex; align-items: center;
+    padding: 0 0 0 14px; flex-shrink: 0;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: default;
+  }
+  .titlebar .app-icon { width: 18px; height: 18px; margin-right: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .titlebar .app-icon svg { width: 18px; height: 18px; }
+  .titlebar .title-text {
+    font-size: 12.5px; color: var(--text-dim); flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .win-controls { display: flex; height: 100%; margin-left: auto; }
+  .win-controls button {
+    width: 46px; height: 100%; border: none; background: transparent;
+    color: var(--text-dim); font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .win-controls button:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .win-controls button.close-btn:hover { background: #c42b1c; color: #fff; }
+
+  .window-content { flex: 1; overflow: auto; position: relative; }
+  .window-content::-webkit-scrollbar { width: 8px; }
+  .window-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+  .window-content::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============ VS Code ============ */
+  .vscode-content { display: flex; height: 100%; background: #1e1e1e; font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 13px; }
+  .vscode-sidebar { width: 48px; background: #252526; display: flex; flex-direction: column; align-items: center; padding-top: 12px; gap: 18px; flex-shrink: 0; }
+  .vscode-sidebar .vs-icon { width: 24px; height: 24px; opacity: 0.4; border: 1.5px solid #888; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888; }
+  .vscode-editor { flex: 1; padding: 16px 20px; line-height: 1.7; color: #d4d4d4; overflow: auto; }
+  .vscode-editor .ln { color: #858585; user-select: none; display: inline-block; width: 28px; text-align: right; margin-right: 16px; }
+  .kw { color: #569cd6; } .str { color: #ce9178; } .fn { color: #dcdcaa; }
+  .cm { color: #6a9955; } .num { color: #b5cea8; } .var { color: #9cdcfe; } .hl { color: #f9f1a5; }
+  .terminal-cursor { display: inline-block; width: 7px; height: 15px; background: #cccccc; animation: blink 1.1s step-end infinite; vertical-align: text-bottom; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ============ Chrome ============ */
+  .chrome-content { display: flex; flex-direction: column; height: 100%; background: #202124; }
+  .chrome-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #292a2d; flex-shrink: 0; }
+  .chrome-dots { display: flex; gap: 6px; margin-right: 4px; }
+  .chrome-dots span { width: 9px; height: 9px; border-radius: 50%; background: #5f6368; }
+  .chrome-address { flex: 1; height: 28px; border-radius: 14px; background: #202124; border: 1px solid #3c4043; display: flex; align-items: center; padding: 0 12px; font-size: 11.5px; color: #9aa0a6; gap: 6px; }
+  .chrome-page { flex: 1; background: #fff; color: #202124; padding: 28px 36px; overflow: auto; font-family: "Segoe UI", sans-serif; }
+  .chrome-page h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; color: #1a73e8; }
+  .chrome-page .sub { font-size: 13px; color: #5f6368; margin-bottom: 20px; }
+  .chrome-page .repo-card { border: 1px solid #dadce0; border-radius: 8px; padding: 18px 20px; max-width: 520px; }
+  .chrome-page .repo-card h2 { font-size: 16px; margin-bottom: 6px; }
+  .chrome-page .repo-card p { font-size: 13px; color: #5f6368; line-height: 1.6; margin-bottom: 10px; }
+  .chrome-page .repo-card .tag { display: inline-block; background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-right: 4px; }
+
+  /* ============ Excel ============ */
+  .excel-content { display: flex; flex-direction: column; height: 100%; background: #fff; }
+  .excel-ribbon { background: #217346; color: #fff; padding: 8px 14px; font-size: 12px; display: flex; gap: 18px; flex-shrink: 0; }
+  .excel-ribbon span { opacity: 0.85; }
+  .excel-ribbon span.active { opacity: 1; font-weight: 600; border-bottom: 2px solid #fff; padding-bottom: 2px; }
+  .excel-grid { flex: 1; overflow: auto; }
+  .excel-grid table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .excel-grid th, .excel-grid td { border: 1px solid #e0e0e0; padding: 7px 12px; text-align: left; color: #333; min-width: 90px; }
+  .excel-grid th { background: #f3f3f3; color: #666; font-weight: 600; font-size: 11px; }
+  .excel-grid tr:nth-child(even) td { background: #fafafa; }
+  .excel-grid .cell-green { color: #217346; font-weight: 600; }
+
+  /* ============ Terminal ============ */
+  .terminal-content { height: 100%; background: #0c0c0c; padding: 16px 18px; font-family: "Cascadia Code", "Consolas", monospace; font-size: 13px; line-height: 1.65; color: #cccccc; overflow: auto; }
+  .terminal-content .prompt { color: #16c60c; }
+  .terminal-content .path { color: #3b78ff; }
+  .terminal-content .out { color: #9a9a9a; }
+  .terminal-content .hl { color: #f9f1a5; }
+
+  /* ============ Figma ============ */
+  .figma-content { display: flex; height: 100%; background: #1e1e1e; }
+  .figma-sidebar { width: 160px; background: #2c2c2c; border-right: 1px solid #3a3a3a; padding: 14px; flex-shrink: 0; }
+  .figma-sidebar .layer { font-size: 11.5px; color: #aaa; padding: 5px 6px; border-radius: 4px; margin-bottom: 2px; }
+  .figma-sidebar .layer.active { background: rgba(0, 229, 255, 0.15); color: var(--accent); }
+  .figma-canvas { flex: 1; display: flex; align-items: center; justify-content: center; background: #1e1e1e; position: relative; }
+  .figma-canvas .artboard { width: 260px; height: 320px; background: #fff; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .figma-canvas .artboard .bar { height: 10px; border-radius: 3px; background: #e8e8e8; }
+  .figma-canvas .artboard .bar.w60 { width: 60%; }
+  .figma-canvas .artboard .bar.w40 { width: 40%; }
+  .figma-canvas .artboard .accent-bar { height: 10px; width: 75%; border-radius: 3px; background: var(--accent); opacity: 0.7; }
+  .figma-canvas .artboard .circle-row { display: flex; gap: 8px; margin-top: 8px; }
+  .figma-canvas .artboard .circle-row span { width: 28px; height: 28px; border-radius: 50%; background: #f0f0f0; }
+
+  /* ============ Notion ============ */
+  .notion-content { height: 100%; background: #fff; color: #37352f; padding: 34px 44px; overflow: auto; font-family: "Segoe UI", sans-serif; }
+  .notion-content .emoji-title { font-size: 40px; margin-bottom: 4px; }
+  .notion-content h1 { font-size: 24px; font-weight: 700; margin-bottom: 18px; }
+  .notion-content .todo { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  .notion-content .todo .box { width: 15px; height: 15px; border: 1.5px solid #bbb; border-radius: 3px; flex-shrink: 0; }
+  .notion-content .todo.done .box { background: #2383e2; border-color: #2383e2; position: relative; }
+  .notion-content .todo.done .box::after { content: "✓"; color: #fff; font-size: 10px; position: absolute; top: -1px; left: 1px; }
+  .notion-content .todo.done span { text-decoration: line-through; color: #999; }
+  .notion-content .divider { height: 1px; background: #eee; margin: 18px 0; }
+  .notion-content .callout { background: #f7f7f5; border-radius: 6px; padding: 14px 16px; font-size: 13px; line-height: 1.6; color: #555; border-left: 3px solid #2383e2; }
+
+  /* ============ 右侧介绍面板 ============ */
+  #info-panel {
+    position: absolute; top: 20px; right: 18px;
+    bottom: calc(var(--taskbar-h) + 16px);
+    width: 330px; z-index: 10000;
+    background: rgba(18, 20, 28, 0.82);
+    backdrop-filter: blur(28px) saturate(1.3);
+    -webkit-backdrop-filter: blur(28px) saturate(1.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 22px 22px 20px;
+    display: flex; flex-direction: column; gap: 16px;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  #info-panel::-webkit-scrollbar { width: 6px; }
+  #info-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+  .info-hero { display: flex; align-items: center; gap: 12px; }
+  .info-hero svg { width: 48px; height: 48px; flex-shrink: 0; }
+  .info-hero h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .info-hero .tagline { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+  .info-desc { font-size: 13px; line-height: 1.65; color: rgba(232,234,240,0.72); }
+
+  .info-section-title {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--text-dim); text-transform: uppercase; margin-bottom: -4px;
+  }
+
+  .feature-list { display: flex; flex-direction: column; gap: 9px; }
+  .feature-item { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; line-height: 1.5; color: rgba(232,234,240,0.8); }
+  .feature-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; box-shadow: 0 0 8px var(--accent-glow); }
+
+  .shortcut-list { display: flex; flex-direction: column; gap: 7px; }
+  .shortcut-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: rgba(232,234,240,0.7); }
+  .shortcut-item kbd {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 5px; padding: 3px 8px; font-size: 11px; color: var(--text);
+    font-family: var(--font);
+  }
+  .shortcut-item kbd .accent { color: var(--accent); font-weight: 700; }
+
+  .info-actions { display: flex; flex-direction: column; gap: 9px; margin-top: 2px; }
+  .info-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
+    cursor: pointer; text-decoration: none; border: none; font-family: var(--font);
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .info-btn:hover { transform: translateY(-1px); }
+  .info-btn:active { transform: translateY(0); }
+  .info-btn-primary { background: var(--accent); color: #001318; box-shadow: 0 4px 20px rgba(0,229,255,0.22); }
+  .info-btn-primary:hover { box-shadow: 0 6px 26px rgba(0,229,255,0.35); }
+  .info-btn-github { background: rgba(255,255,255,0.08); color: var(--text); border: 1px solid rgba(255,255,255,0.12); }
+  .info-btn-github:hover { background: rgba(255,255,255,0.13); }
+  .info-btn-coffee { background: rgba(255, 180, 80, 0.12); color: #ffb450; border: 1px solid rgba(255, 180, 80, 0.25); }
+  .info-btn-coffee:hover { background: rgba(255, 180, 80, 0.2); }
+
+  .info-footer { font-size: 11px; color: var(--text-dim); text-align: center; line-height: 1.6; margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .info-footer .heart { color: #ff5c8a; }
+
+  /* ============ 任务栏 ============ */
+  #taskbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: var(--taskbar-h); z-index: 11000;
+    background: rgba(18, 20, 28, 0.72);
+    backdrop-filter: blur(32px) saturate(1.3);
+    -webkit-backdrop-filter: blur(32px) saturate(1.3);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; padding: 0 12px;
+  }
+  .taskbar-center { display: flex; align-items: center; gap: 4px; }
+  .tb-btn {
+    width: 40px; height: 40px; border-radius: 8px; border: none;
+    background: transparent; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; transition: background 0.12s;
+  }
+  .tb-btn:hover { background: rgba(255,255,255,0.08); }
+  .tb-btn svg { width: 22px; height: 22px; }
+  .tb-btn.running::after {
+    content: ""; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+    width: 5px; height: 3px; border-radius: 2px; background: var(--accent); opacity: 0.5;
+  }
+  .tb-btn.focused::after { width: 16px; opacity: 1; }
+  .tb-divider { width: 1px; height: 22px; background: rgba(255,255,255,0.1); margin: 0 6px; }
+  .taskbar-right {
+    position: absolute; right: 14px;
+    display: flex; align-items: center; gap: 14px;
+    font-size: 11.5px; color: var(--text-dim);
+  }
+  .taskbar-right .tray-icon { width: 16px; height: 16px; opacity: 0.7; }
+  .taskbar-right .clock { text-align: right; line-height: 1.3; }
+
+  /* ============ 轮盘 ============ */
+  #wheel-overlay {
+    position: fixed; inset: 0; z-index: 15000;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.1s ease;
+  }
+  #wheel-overlay.visible { opacity: 1; }
+  #wheel-svg {
+    position: absolute; overflow: visible;
+    filter: drop-shadow(0 0 50px rgba(0,0,0,0.7));
+  }
+  .wheel-sector {
+    transition: fill 0.08s ease, stroke 0.08s ease;
+    fill: rgba(18, 22, 32, 0.78);
+    stroke: rgba(255, 255, 255, 0.07);
+    stroke-width: 1;
+  }
+  .wheel-sector.highlighted {
+    fill: rgba(0, 229, 255, 0.24);
+    stroke: rgba(0, 229, 255, 0.85);
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 14px rgba(0, 229, 255, 0.35));
+  }
+  .wheel-center { fill: rgba(18, 22, 32, 0.9); stroke: rgba(255,255,255,0.1); stroke-width: 1; }
+  .wheel-center-text {
+    fill: rgba(232,234,240,0.5); font-size: 10px; font-family: var(--font);
+    text-anchor: middle; dominant-baseline: middle; letter-spacing: 0.5px;
+  }
+  .wheel-label {
+    fill: rgba(232,234,240,0.82); font-size: 11px; font-family: var(--font);
+    text-anchor: middle; dominant-baseline: middle; pointer-events: none;
+  }
+  .wheel-label.highlighted { fill: #fff; font-weight: 700; }
+  .wheel-icon { pointer-events: none; }
+
+  /* ============ 底部提示 ============ */
+  #hint {
+    position: absolute; bottom: calc(var(--taskbar-h) + 16px); left: 50%;
+    transform: translateX(-50%); z-index: 14000;
+    background: rgba(18, 20, 28, 0.72);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 24px; padding: 9px 22px;
+    font-size: 12.5px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+  }
+  #hint kbd {
+    display: inline-block; background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+    padding: 1px 7px; font-family: var(--font); font-size: 11px; color: var(--text);
+  }
+  #hint .accent { color: var(--accent); font-weight: 600; }
+  #hint.hidden { opacity: 0; transform: translateX(-50%) translateY(6px); }
+
+  /* ============ Toast ============ */
+  #toast {
+    position: fixed; top: 24px; left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    background: rgba(18,20,28,0.88);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(0,229,255,0.22);
+    border-radius: 10px; padding: 10px 20px;
+    font-size: 13px; color: var(--text);
+    z-index: 26000; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ============ 咖啡赞赏弹窗 ============ */
+  .modal-mask {
+    position: fixed; inset: 0; z-index: 25000;
+    background: rgba(4, 6, 12, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  .modal-mask.open { opacity: 1; pointer-events: auto; }
+
+  .coffee-dialog {
+    width: 400px;
+    max-width: 100%;
+    max-height: calc(100vh - 40px);
+    background: rgba(24, 27, 36, 0.97);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    box-shadow: 0 30px 90px rgba(0,0,0,0.75), 0 0 0 0.5px rgba(255,180,80,0.12) inset;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transform: scale(0.94) translateY(12px);
+    transition: transform 0.26s cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+  .modal-mask.open .coffee-dialog { transform: scale(1) translateY(0); }
+
+  .coffee-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: linear-gradient(120deg, rgba(255,180,80,0.10), transparent 70%);
+    flex-shrink: 0;
+  }
+  .coffee-title {
+    font-size: 15px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .coffee-title .coffee-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #ffb450; box-shadow: 0 0 10px rgba(255,180,80,0.8);
+  }
+  .coffee-close {
+    width: 30px; height: 30px; border-radius: 7px; border: none;
+    background: transparent; color: var(--text-dim); cursor: pointer;
+    font-size: 14px; font-family: var(--font);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s, color 0.12s;
+  }
+  .coffee-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+  .coffee-body {
+    padding: 16px 20px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    overflow-y: auto;
+  }
+
+  .coffee-qr-box {
+    width: 208px; height: 208px;
+    background: #fff; border-radius: 14px; padding: 10px;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .coffee-qr-box img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 6px; }
+
+  .coffee-scan-hint {
+    font-size: 12.5px; color: var(--text-dim); text-align: center;
+    line-height: 1.5;
+  }
+  .coffee-scan-hint b { color: #ffb450; }
+
+  .coffee-foot {
+    text-align: center; font-size: 11px; color: var(--text-dim);
+    padding: 14px 20px 18px; line-height: 1.7;
+  }
+
+  /* ============ 响应式 ============ */
+  @media (max-width: 1100px) {
+    #info-panel { width: 280px; }
+    .window { max-width: calc(100vw - 340px); }
+  }
+  @media (max-width: 860px) {
+    #info-panel { display: none; }
+    .window { max-width: calc(100vw - 40px); width: calc(100vw - 40px); left: 20px !important; top: 60px !important; }
+    #desktop-icons { display: none; }
+    #hint { font-size: 11px; padding: 7px 14px; }
+  }
+</style>
 </head>
 <body>
 
-<div class="atmos" aria-hidden="true"></div>
-<div class="grain" aria-hidden="true"></div>
-<div class="progress" id="progress" aria-hidden="true"></div>
+<div id="desktop">
+  <div id="wallpaper"></div>
 
-<header class="site-head" id="siteHead">
-  <nav class="nav" aria-label="主导航">
-    <a class="brand" href="#top" aria-label="ShaiZero 首页">
-      <svg viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="32" cy="32" r="29" fill="none" stroke="rgba(242,237,228,.16)" stroke-width="1.5"/>
-        <path d="M32 5a27 27 0 0 1 23.4 13.5" fill="none" stroke="#E9B56A" stroke-width="4.4" stroke-linecap="round"/>
-        <path d="M32 5a27 27 0 0 0-23.4 13.5" fill="none" stroke="#4C8DFF" stroke-width="4.4" stroke-linecap="round"/>
-        <path d="M8.6 45.5A27 27 0 0 0 32 59" fill="none" stroke="#2ED3A0" stroke-width="4.4" stroke-linecap="round"/>
-        <path d="M55.4 45.5A27 27 0 0 1 32 59" fill="none" stroke="#FF8AC2" stroke-width="4.4" stroke-linecap="round"/>
-        <circle cx="32" cy="32" r="6.5" fill="#E9B56A"/>
+  <!-- 桌面图标 -->
+  <div id="desktop-icons">
+    <div class="desktop-icon" data-open="about">
+      <svg viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/>
+        <path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/>
+        <circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/>
+        <path d="M24 8 L24 19 M24 29 L24 40 M11 16 L19 20.5 M29 27.5 L37 32 M37 16 L29 20.5 M19 27.5 L11 32" stroke="#00e5ff" stroke-width="1.2" opacity="0.5"/>
       </svg>
-      Shai<span class="z">Zero</span>
+      <span>ShaiZero</span>
+    </div>
+    <a class="desktop-icon" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="#e8eaf0"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.17c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+      <span>GitHub</span>
     </a>
-    <div class="nav-links">
-      <a href="#how">上手</a>
-      <a href="#forms">形态</a>
-      <a href="#control">界面</a>
-      <a href="#download">下载</a>
+    <button class="desktop-icon" onclick="openCoffeeModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#ffb450" stroke-width="1.6"><path d="M4 8h12v6a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M16 9h2a2 2 0 0 1 0 4h-2"/><path d="M7 2v2M10 2v2M13 2v2"/></svg>
+      <span>请喝咖啡</span>
+    </button>
+  </div>
+
+  <!-- 窗口层 -->
+  <div id="windows-layer"></div>
+
+  <!-- 右侧介绍面板 -->
+  <div id="info-panel">
+    <div class="info-hero">
+      <svg viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/>
+        <path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/>
+        <circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/>
+        <path d="M24 8 L24 19 M24 29 L24 40 M11 16 L19 20.5 M29 27.5 L37 32 M37 16 L29 20.5 M19 27.5 L11 32" stroke="#00e5ff" stroke-width="1.2" opacity="0.5"/>
+      </svg>
+      <div>
+        <h1>ShaiZero</h1>
+        <div class="tagline">轮盘式窗口快速切换</div>
+      </div>
     </div>
-    <div class="nav-cta">
-      <a class="ghost-link" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 0 0-2.06 12.66c.33.06.45-.14.45-.32v-1.1c-1.83.4-2.22-.79-2.22-.79-.3-.76-.73-.97-.73-.97-.6-.41.05-.4.05-.4.66.05 1.01.68 1.01.68.59 1.02 1.55.73 1.93.56.06-.43.23-.73.42-.9-1.47-.17-3.01-.74-3.01-3.28 0-.73.26-1.32.68-1.79-.07-.17-.3-.85.07-1.77 0 0 .55-.18 1.8.68a6.2 6.2 0 0 1 3.27 0c1.24-.86 1.79-.68 1.79-.68.37.92.14 1.6.07 1.77.42.47.68 1.06.68 1.79 0 2.55-1.55 3.11-3.02 3.27.24.21.45.62.45 1.25v1.85c0 .18.12.39.46.32A6.5 6.5 0 0 0 8 1.5Z"/></svg>
-        GitHub
+
+    <div class="info-desc">
+      ShaiZero 是一个 Windows 窗口快速切换工具。按住 <b>Alt</b> 在桌面任意位置按下鼠标左键，轮盘展开，指针停在某一格松手，对应窗口就到前台；拖回圆心或右键取消。
+    </div>
+
+    <div class="info-section-title">核心特性</div>
+    <div class="feature-list">
+      <div class="feature-item"><div class="dot"></div><span>单 exe，绿色免安装，不需要管理员权限</span></div>
+      <div class="feature-item"><div class="dot"></div><span>Windows 10 1809+ / 11 x64，多屏 DPI 适配</span></div>
+      <div class="feature-item"><div class="dot"></div><span>轮盘半径、扇区间距、动画、主题均可调</span></div>
+      <div class="feature-item"><div class="dot"></div><span>不需要 .NET / VC++ 运行库，纯原生 Win32</span></div>
+    </div>
+
+    <div class="info-section-title">快捷键</div>
+    <div class="shortcut-list">
+      <div class="shortcut-item"><span>呼出轮盘</span><kbd><span class="accent">Alt</span> + 鼠标左键</kbd></div>
+      <div class="shortcut-item"><span>取消轮盘</span><kbd>右键 / 拖回圆心</kbd></div>
+      <div class="shortcut-item"><span>打开设置</span><kbd><span class="accent">Ctrl</span> + <span class="accent">T</span></kbd></div>
+    </div>
+
+    <div class="info-actions">
+      <a class="info-btn info-btn-primary" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+        下载最新版
       </a>
-      <a class="btn primary sm" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-        免费下载
+      <a class="info-btn info-btn-github" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.17c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+        GitHub 仓库
       </a>
+      <button class="info-btn info-btn-coffee" onclick="openCoffeeModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h12v6a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M16 9h2a2 2 0 0 1 0 4h-2"/><path d="M7 2v2M10 2v2M13 2v2"/></svg>
+        请作者喝咖啡
+      </button>
     </div>
-  </nav>
-</header>
 
-<main id="top">
-
-  <!-- ======================= HERO ======================= -->
-  <section class="hero" aria-labelledby="heroTitle">
-    <span class="hero-word" aria-hidden="true">ZERO</span>
-    <div class="wrap hero-inner">
-      <div class="hero-copy">
-        <div class="pill">
-          <span class="live"></span>
-          <span>Windows 10 / 11 · x64</span>
-          <span class="tag">v0.1.1</span>
-        </div>
-        <h1 id="heroTitle">
-          <span class="line">指尖一转</span>
-          <span class="line grad">窗口即达</span>
-        </h1>
-        <p class="lede">
-          按住 <kbd>Alt</kbd>，在桌面任意位置按下<b>鼠标左键</b>——<br>
-          十扇窗在指针下展开。滑向哪一格，松手，<br>
-          那个窗口就到前台。
-        </p>
-        <div class="hero-actions">
-          <a class="btn primary" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            下载 ShaiZero
-          </a>
-          <button class="btn" id="demoBtn" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5 15.5 12 10 15.5z" fill="currentColor" stroke="none"/></svg>
-            看它转一圈
-          </button>
-        </div>
-        <div class="hero-meta">
-          <span>单个 exe</span><i></i>
-          <span>绿色免安装</span><i></i>
-          <span>无需管理员权限</span><span class="sep"></span>
-          <span>MIT + Commons Clause</span>
-        </div>
-      </div>
-
-      <div class="hero-stage" id="stage" aria-label="互动轮盘：按下鼠标左键，拖到扇区，松手切换">
-        <div class="orbit" aria-hidden="true"></div>
-        <div class="orbit b" aria-hidden="true"></div>
-        <canvas id="heroWheel"></canvas>
-        <span class="corner c1" aria-hidden="true"></span>
-        <span class="corner c2" aria-hidden="true"></span>
-        <span class="corner c3" aria-hidden="true"></span>
-        <span class="corner c4" aria-hidden="true"></span>
-
-        <div class="hud tl">
-          Window Dial / 01
-          <span class="hl">10 SEATS</span>
-        </div>
-        <div class="hud tr">
-          <span class="state" id="hudState">READY</span>
-          <span class="hl">ALT + LMB</span>
-        </div>
-        <div class="hud bl">
-          <b>就在这里试试</b>：按住左键，滑向一格，松手。
-        </div>
-        <div class="hud br">
-          <b>GLASS</b>
-          <br>NO DRILL
-        </div>
-      </div>
+    <div class="info-footer">
+      用 <span class="heart">♥</span> 为效率而做 · MIT + Commons Clause<br>
+      v0.1.1 · 仅 Windows
     </div>
-  </section>
-
-  <div class="toast" id="toast" role="status" aria-live="polite">
-    <small>RELEASE → FOREGROUND</small>
-    <strong id="toastName">已切换至 <em>浏览器</em></strong>
-    <i class="bar" aria-hidden="true"></i>
   </div>
 
-  <!-- ======================= STATS ======================= -->
-  <section class="stats" aria-label="产品数据">
-    <div class="wrap">
-      <div class="grid">
-        <div class="stat"><span class="v">10</span><span class="k"><b>默认席位</b>可扩到 24</span></div>
-        <div class="stat"><span class="v">1<small>EXE</small></span><span class="k"><b>绿色单文件</b>解压即用</span></div>
-        <div class="stat"><span class="v">1.3<small>MB</small></span><span class="k"><b>轻到没有存在感</b>不驻留服务</span></div>
-        <div class="stat"><span class="v">0</span><span class="k"><b>安装步骤</b>卸载 = 删目录</span></div>
-      </div>
+  <!-- 任务栏 -->
+  <div id="taskbar">
+    <div class="taskbar-center">
+      <button class="tb-btn" title="开始" id="start-btn">
+        <svg viewBox="0 0 24 24" fill="#e8eaf0"><path d="M3 5.5L10.5 4v7H3V5.5zM11.5 3.8L21 2v9h-9.5V3.8zM3 12.5h7.5v7L3 18.5v-6zM11.5 12.5H21v9l-9.5-1.8v-7.2z"/></svg>
+      </button>
+      <button class="tb-btn" title="搜索">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e8eaf0" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21" stroke-linecap="round"/></svg>
+      </button>
+      <button class="tb-btn" title="任务视图">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e8eaf0" stroke-width="1.6"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg>
+      </button>
+      <div class="tb-divider"></div>
+      <div id="taskbar-apps" style="display:flex; gap:4px;"></div>
     </div>
-  </section>
-
-  <!-- ======================= MARQUEE ======================= -->
-  <div class="marquee" aria-hidden="true">
-    <div class="track">
-      <div class="seq">
-        <span>Alt + Left Button</span><i></i>
-        <span><b>One Exe</b></span><i></i>
-        <span>No Installer</span><i></i>
-        <span>Six Forms</span><i></i>
-        <span>Multi-Screen Aware</span><i></i>
-        <span><b>Seat Memory</b></span><i></i>
-        <span>Green Build</span><i></i>
-        <span>Zero Friction</span><i></i>
-      </div>
-      <div class="seq">
-        <span>Alt + Left Button</span><i></i>
-        <span><b>One Exe</b></span><i></i>
-        <span>No Installer</span><i></i>
-        <span>Six Forms</span><i></i>
-        <span>Multi-Screen Aware</span><i></i>
-        <span><b>Seat Memory</b></span><i></i>
-        <span>Green Build</span><i></i>
-        <span>Zero Friction</span><i></i>
+    <div class="taskbar-right">
+      <svg class="tray-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8.5C2 8.5 6 4 12 4s10 4.5 10 4.5"/><path d="M5 12c0 0 2.8-3 7-3s7 3 7 3"/><path d="M8.5 15.5c0 0 1.5-1.5 3.5-1.5s3.5 1.5 3.5 1.5"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>
+      <svg class="tray-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>
+      <svg class="tray-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9c1.5 1 1.5 5 0 6"/><path d="M18.5 6.5c3 2 3 9 0 11"/></svg>
+      <div class="clock">
+        <div id="clock-time">--:--</div>
+        <div id="clock-date">----/--/--</div>
       </div>
     </div>
   </div>
 
-  <!-- ======================= HOW ======================= -->
-  <section class="how" id="how" aria-labelledby="howTitle">
-    <div class="wrap">
-      <div class="how-grid">
-        <div class="how-head reveal">
-          <span class="eyebrow"><span class="idx">01</span> Quick Start</span>
-          <h2 class="sec-title" id="howTitle">三步，<br>形成肌肉记忆</h2>
-          <p class="sec-lede">没有窗口列表，没有 <span style="font-family:var(--display)">Alt+Tab</span> 的连环按。一次就会，之后不用看屏幕。</p>
-          <div class="note">
-            组合键、上盘键、轮盘大小与动画都可以改。改哪一行，<b>当场生效</b>，没有保存按钮。
-          </div>
+  <!-- 轮盘覆盖层 -->
+  <div id="wheel-overlay">
+    <svg id="wheel-svg"></svg>
+  </div>
+
+  <!-- 底部提示 -->
+  <div id="hint">
+    <kbd>Alt</kbd> + <span style="opacity:0.6">鼠标左键</span> 呼出轮盘 · 拖到扇区松开即可切换
+  </div>
+
+  <!-- 咖啡赞赏弹窗 -->
+  <div id="coffee-modal" class="modal-mask" aria-hidden="true">
+    <div class="coffee-dialog" role="dialog" aria-label="请作者喝咖啡">
+      <div class="coffee-header">
+        <div class="coffee-title"><span class="coffee-dot"></span>请作者喝咖啡</div>
+        <button class="coffee-close" id="coffee-close" aria-label="关闭">✕</button>
+      </div>
+      <div class="coffee-body">
+        <div class="coffee-qr-box">
+          <img src="assets/site/donate-qr.png" alt="微信赞赏二维码" width="208" height="208">
         </div>
-
-        <div class="step-list">
-          <div class="step-row reveal">
-            <div class="no">STEP 01</div>
-            <div>
-              <h3>按住 <kbd>Alt</kbd> 再按左键</h3>
-              <p>轮盘就在你按下鼠标的位置展开，不多占一块屏。默认组合是 <b>Alt + 左键</b>，也能换成别的键或鼠标侧键。</p>
-            </div>
-          </div>
-          <div class="step-row reveal d1">
-            <div class="no">STEP 02</div>
-            <div>
-              <h3>滑过去，用方向选</h3>
-              <p>指针落在哪一格，哪一格亮起，中心实时显示窗口标题。拖回圆心松手、或点右键，<b>取消</b>，不打扰任何窗口。</p>
-            </div>
-          </div>
-          <div class="step-row reveal d2">
-            <div class="no">STEP 03</div>
-            <div>
-              <h3>松手，窗口到前台</h3>
-              <p>松开左键即刻切换。顺手 <kbd>Ctrl</kbd><span style="opacity:.4">+</span><kbd>2</kbd> 把当前窗口钉上轮盘；<kbd>Ctrl</kbd><span style="opacity:.4">+</span><kbd>T</kbd> 打开设置。</p>
-            </div>
-          </div>
-          <div class="step-row reveal d3">
-            <div class="no">BONUS</div>
-            <div>
-              <h3>位置就是快捷键</h3>
-              <p>窗口按指纹记座，下次登录还在老位置。手指不用找，<b>座位有记性</b>。</p>
-            </div>
-          </div>
-        </div>
+        <div class="coffee-scan-hint">微信扫码 · 金额随意</div>
       </div>
-    </div>
-  </section>
-
-  <!-- ======================= FORMS ======================= -->
-  <section class="forms" id="forms" aria-labelledby="formsTitle">
-    <div class="wrap">
-      <div class="sec-head reveal">
-        <div>
-          <span class="eyebrow"><span class="idx">02</span> Six Forms</span>
-          <h2 class="sec-title" id="formsTitle">给桌面换一种<em>语气</em></h2>
-        </div>
-        <p class="side">同一副几何，六种材质。点一下，右侧轮盘立即换装——你桌面上的那一枚也会跟着变。</p>
+      <div class="coffee-foot">
+        您的支持是持续更新的动力 ♥
       </div>
-
-      <div class="forms-grid">
-        <div class="forms-visual reveal">
-          <span class="lab tl">Live Preview<strong id="themeEn">GLASS</strong></span>
-          <canvas id="formWheel" aria-label="轮盘形态预览"></canvas>
-          <span class="lab br">Current Form<span id="themeNo">02 / 06</span><span class="dotline" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span></span>
-        </div>
-
-        <div class="reveal d1">
-          <div class="theme-list" aria-label="轮盘形态">
-            <button class="theme-btn" data-theme="outline" type="button">
-              <span class="theme-ico outline" aria-hidden="true"></span>
-              <div><h4>描边 <span>OUTLINE</span></h4><p>细线、留白，像一张工程草图。</p></div>
-              <span class="arw">→</span>
-            </button>
-            <button class="theme-btn on" data-theme="glass" type="button">
-              <span class="theme-ico glass" aria-hidden="true"></span>
-              <div><h4>玻璃 <span>GLASS</span></h4><p>磨砂玻璃叠在桌面上，默认形态。</p></div>
-              <span class="arw">→</span>
-            </button>
-            <button class="theme-btn" data-theme="shimmer" type="button">
-              <span class="theme-ico shimmer" aria-hidden="true"></span>
-              <div><h4>微光 <span>SHIMMER</span></h4><p>边缘一圈呼吸的微光，夜里自己亮起来。</p></div>
-              <span class="arw">→</span>
-            </button>
-            <button class="theme-btn" data-theme="card" type="button">
-              <span class="theme-ico card" aria-hidden="true"></span>
-              <div><h4>卡片 <span>CARD</span></h4><p>厚实色块与清晰分隔，适合浅色桌面。</p></div>
-              <span class="arw">→</span>
-            </button>
-            <button class="theme-btn" data-theme="neon" type="button">
-              <span class="theme-ico neon" aria-hidden="true"></span>
-              <div><h4>霓虹 <span>NEON</span></h4><p>黑场里的灯管，描边发着光。</p></div>
-              <span class="arw">→</span>
-            </button>
-            <button class="theme-btn" data-theme="paper" type="button">
-              <span class="theme-ico paper" aria-hidden="true"></span>
-              <div><h4>纸卡 <span>PAPER</span></h4><p>奶油纸面与柔和色，白天不刺眼。</p></div>
-              <span class="arw">→</span>
-            </button>
-          </div>
-          <p style="margin-top:20px;font-size:13px;color:var(--ink-dim);line-height:1.8" id="themeDesc">磨砂玻璃叠在桌面上，默认形态，安静耐看。</p>
-        </div>
-      </div>
-
-      <div class="forms-note reveal d2">
-        <span>单击切换 · 预览即时生效</span>
-        <span>所有形态随 DPI 逐屏缩放，不糊、不偏</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ======================= CONTROL ROOM ======================= -->
-  <section class="control" id="control" aria-labelledby="controlTitle">
-    <div class="wrap">
-      <div class="sec-head reveal">
-        <div>
-          <span class="eyebrow"><span class="idx">03</span> Control Room</span>
-          <h2 class="sec-title" id="controlTitle">设置也值得<em>多看一眼</em></h2>
-        </div>
-        <p class="side">快捷键 / 轮盘 / 语言 / 关于。四页讲完，没有下一步，也没有保存。</p>
-      </div>
-
-      <div class="control-frame reveal">
-        <div class="control-bar" aria-hidden="true">
-          <i></i><i></i><i></i>
-          <span class="t">ShaiZero 设置 — 轮盘</span>
-          <span class="live">LIVE</span>
-        </div>
-        <img src="assets/site/settings.png" alt="ShaiZero 设置窗口：左侧四页导航，中间是可交互的轮盘预览，右侧是窗口列表与外观选项" loading="lazy" width="1400" height="860">
-      </div>
-      <div class="control-caption reveal d1">
-        <span><b>左</b> 改快捷键、大小、间距、动画、上限</span>
-        <span><b>中</b> 直接玩预览：单击改名、右键移出、拖动换位</span>
-        <span><b>右</b> 窗口列表，双击上盘 / 下盘</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ======================= BENTO ======================= -->
-  <section id="why" aria-labelledby="whyTitle">
-    <div class="wrap">
-      <div class="sec-head reveal">
-        <div>
-          <span class="eyebrow"><span class="idx">04</span> Why ShaiZero</span>
-          <h2 class="sec-title" id="whyTitle">轻，是刻进<em>骨头里</em>的</h2>
-        </div>
-        <p class="side">没有账号、没有遥测、没有后台服务。一个 exe，用完就可以忘掉。</p>
-      </div>
-
-      <div class="bento">
-        <article class="card geo span7 reveal">
-          <span class="k">Geometry / 几何</span>
-          <h3>用方向选，而不是用眼睛找</h3>
-          <p>扇区角度、间距、圆环层次都经过收敛。目标永远在指针周围，手腕走的路比列表短得多。</p>
-          <svg class="art geo-svg" width="330" height="250" viewBox="0 0 330 250" fill="none" aria-hidden="true">
-            <circle cx="250" cy="140" r="96" stroke="rgba(242,237,228,.10)"/>
-            <circle cx="250" cy="140" r="64" stroke="rgba(242,237,228,.12)"/>
-            <circle cx="250" cy="140" r="30" stroke="rgba(233,181,106,.32)"/>
-            <circle cx="250" cy="140" r="118" stroke="rgba(242,237,228,.06)" stroke-dasharray="2 7"/>
-            <path d="M250 44A96 96 0 0 1 343 107" stroke="#4C8DFF" stroke-opacity=".55" stroke-width="1.4"/>
-            <path d="M343 173A96 96 0 0 1 293 225" stroke="#2ED3A0" stroke-opacity=".5" stroke-width="1.4"/>
-            <path d="M207 225A96 96 0 0 1 155 154" stroke="#FF8AC2" stroke-opacity=".45" stroke-width="1.4"/>
-            <path d="M157 121A96 96 0 0 1 210 49" stroke="#F5C451" stroke-opacity=".55" stroke-width="1.4"/>
-            <path d="M152 140h196" stroke="rgba(233,181,106,.35)" stroke-dasharray="3 6" class="dash"/>
-            <circle cx="250" cy="140" r="5" fill="#E9B56A"/>
-            <circle cx="250" cy="44" r="3" fill="#4C8DFF"/>
-            <circle cx="343" cy="173" r="3" fill="#2ED3A0"/>
-            <circle cx="155" cy="154" r="3" fill="#FF8AC2"/>
-          </svg>
-        </article>
-
-        <article class="card memo span5 reveal d1">
-          <span class="k">Seat Memory / 记性</span>
-          <h3>位置就是快捷键</h3>
-          <p>窗口按指纹记座。下次开机，浏览器还在右上，终端还在左下。</p>
-          <div class="memo-lines" aria-hidden="true"><i></i><i></i><i></i></div>
-          <div class="tags"><span>指纹识别</span><span>手工上盘</span><span>保留空位</span></div>
-          <svg class="memo-svg" width="96" height="96" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-            <path d="M18 48c0-16.6 13.4-30 30-30s30 13.4 30 30" stroke="rgba(233,181,106,.5)" stroke-width="1.3"/>
-            <path d="M26 48c0-12.2 9.8-22 22-22s22 9.8 22 22" stroke="rgba(233,181,106,.34)" stroke-width="1.3"/>
-            <path d="M34 48c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="rgba(233,181,106,.26)" stroke-width="1.3"/>
-            <path d="M48 78V56" stroke="rgba(233,181,106,.45)" stroke-width="1.3"/>
-            <circle cx="48" cy="48" r="4" fill="#E9B56A"/>
-          </svg>
-        </article>
-
-        <article class="card span4 reveal">
-          <span class="k">Footprint / 体积</span>
-          <h3>一兆出头，随身带</h3>
-          <p>静态 CRT 编译，不依赖 .NET / VC++ 运行库。压缩包里只有 exe、许可证、说明。</p>
-          <div class="big">1.3<small>MB</small></div>
-        </article>
-
-        <article class="card span4 reveal d1">
-          <span class="k">Form / 形态</span>
-          <h3>六套，随心换</h3>
-          <p>从工程草图到黑场灯管，总有一套配你的桌面。</p>
-          <div class="dot-row" aria-hidden="true">
-            <i style="--c:#4C8DFF"></i><i style="--c:#2ED3A0"></i><i style="--c:#B18CFF"></i><i style="--c:#F5C451"></i><i style="--c:#FF8AC2"></i><i style="--c:#45D3F2"></i>
-          </div>
-        </article>
-
-        <article class="card span4 reveal d2">
-          <span class="k">Multi-Screen / 多屏</span>
-          <h3>在按下的那块屏展开</h3>
-          <p>逐屏 DPI 感知，缩放不糊、不偏；轮盘永远跟着指针走。</p>
-          <div class="screens" aria-hidden="true"><i></i><i></i><i></i></div>
-        </article>
-
-        <article class="card span12 reveal" id="arch">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap">
-            <div>
-              <span class="k">Architecture / 分层</span>
-              <h3>三层，各管各的</h3>
-              <p>core 不知道 Windows 存在，platform-win 不知道 UI 存在，app 只做编排。纯 Rust，140 项单元测试。</p>
-            </div>
-            <div class="arch" aria-label="项目分层：core 到 platform-win 到 app">
-              <span><b>core</b><small>几何 · 手势 · 配色</small></span>
-              <i>→</i>
-              <span><b>platform-win</b><small>钩子 · z 序 · DPI</small></span>
-              <i>→</i>
-              <span><b>app</b><small>托盘 · 绘制 · 设置</small></span>
-            </div>
-          </div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ======================= DOWNLOAD ======================= -->
-  <section id="download" aria-labelledby="dlTitle">
-    <div class="wrap">
-      <div class="dl-panel reveal">
-        <div class="dl-copy">
-          <div class="ver">
-            <span class="tag">LATEST</span>
-            <span id="relVer">v0.1.1</span>
-            <span style="opacity:.4">·</span>
-            <span>WIN64</span>
-          </div>
-          <h2 id="dlTitle">拿走，<em>不谢</em></h2>
-          <p>到 GitHub Releases 下载 <code>shaizero-&lt;版本&gt;-win64.zip</code>，解压到任意目录，双击 <code>ShaiZero.exe</code> 就能用。运行要求：Windows 10 1809+ 或 Windows 11，x64。</p>
-          <div class="dl-actions">
-            <a class="btn primary" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-              前往 Releases
-            </a>
-            <a class="btn" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">源码仓库</a>
-          </div>
-          <div class="dl-note">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
-            <span>每个 release 附带 SHA256SUMS.txt。校验：<code style="margin-left:4px">certutil -hashfile &lt;zip&gt; SHA256</code></span>
-          </div>
-        </div>
-
-        <div class="dl-spec">
-          <div class="row"><span>最新版本</span><b id="relVer2">v0.1.1</b></div>
-          <div class="row"><span>下载体积</span><b id="relSize">1.3 MB</b></div>
-          <div class="row"><span>发布日期</span><b id="relDate">2026.11.11</b></div>
-          <div class="row"><span>运行平台</span><b>Windows 10 1809+ / 11 · x64</b></div>
-          <div class="row"><span>运行依赖</span><b>无 · 静态 CRT</b></div>
-          <div class="row"><span>许可</span><b>MIT + Commons Clause</b></div>
-          <div class="row"><span>卸载</span><b>删目录 + %LOCALAPPDATA%\ShaiZero</b></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ======================= COFFEE ======================= -->
-  <section class="coffee" aria-labelledby="coffeeTitle">
-    <div class="wrap">
-      <div class="coffee-panel reveal">
-        <div class="coffee-copy">
-          <span class="k">Buy Me a Coffee</span>
-          <h2 id="coffeeTitle">如果它帮你少找了几次窗口</h2>
-          <p>ShaiZero 免费使用：可修改、可闭源分发、可企业内部部署，但不得有偿销售。要是它确实顺手了一点，可以请作者喝杯咖啡。心意收到。</p>
-          <div class="fine">MIT LICENSE + COMMONS CLAUSE</div>
-        </div>
-        <div class="qr-wrap">
-          <div class="qr"><img src="assets/site/donate-qr.png" alt="赞赏二维码" loading="lazy"></div>
-          <small>Scan to support</small>
-        </div>
-      </div>
-    </div>
-  </section>
-
-</main>
-
-<footer class="site-foot" id="footer">
-  <div class="wrap">
-    <div class="foot-word" aria-hidden="true">SHAIZERO</div>
-    <div class="foot-row">
-      <div class="foot-brand">
-        <svg viewBox="0 0 64 64" aria-hidden="true">
-          <circle cx="32" cy="32" r="29" fill="none" stroke="rgba(242,237,228,.14)"/>
-          <path d="M32 5a27 27 0 0 1 23.4 13.5" fill="none" stroke="#E9B56A" stroke-width="4.4" stroke-linecap="round"/>
-          <path d="M32 5a27 27 0 0 0-23.4 13.5" fill="none" stroke="#4C8DFF" stroke-width="4.4" stroke-linecap="round"/>
-          <circle cx="32" cy="32" r="6.5" fill="#E9B56A"/>
-        </svg>
-        ShaiZero
-        <span style="opacity:.4;font-family:var(--sans);font-size:12px;letter-spacing:.02em">指尖一转，窗口即达</span>
-      </div>
-      <div class="foot-links">
-        <a href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">Releases</a>
-        <a href="https://github.com/19y/ShaiZero/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
-        <a href="https://github.com/19y/ShaiZero/blob/main/README.md" target="_blank" rel="noopener">README</a>
-      </div>
-      <div class="foot-fine">© <span id="year">2026</span> SHAIZERO · BUILT WITH RUST</div>
     </div>
   </div>
-</footer>
 
-<script src="assets/site/site.js"></script>
+  <!-- Toast -->
+  <div id="toast"></div>
+</div>
+
+<script>
+/* ============================================================
+   数据：模拟真实的软件窗口
+   ============================================================ */
+const WINDOWS_DATA = [
+  {
+    id: 'vscode',
+    title: 'main.py - ShaiZero - Visual Studio Code',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M17.5 2L9 10.5 4.5 7 2 8.5v7L4.5 17 9 13.5 17.5 22 22 19.5v-15L17.5 2z" fill="#007ACC"/><path d="M9 10.5L17.5 2v20L9 13.5v-3z" fill="#1F9CF0"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><path d="M17.5 2L9 10.5 4.5 7 2 8.5v7L4.5 17 9 13.5 17.5 22 22 19.5v-15L17.5 2z" fill="#007ACC"/></svg>`,
+    content: `
+      <div class="vscode-content">
+        <div class="vscode-sidebar">
+          <div class="vs-icon">◫</div><div class="vs-icon">⌕</div><div class="vs-icon">⑂</div>
+          <div class="vs-icon">▷</div><div class="vs-icon">⊞</div>
+        </div>
+        <div class="vscode-editor">
+          <div><span class="ln">1</span><span class="cm"># ShaiZero — 轮盘式窗口切换核心逻辑</span></div>
+          <div><span class="ln">2</span><span class="kw">import</span> <span class="var">win32</span>, <span class="var">geometry</span>, <span class="var">gesture</span></div>
+          <div><span class="ln">3</span></div>
+          <div><span class="ln">4</span><span class="kw">fn</span> <span class="fn">on_trigger</span>(<span class="var">mods</span>: <span class="kw">Modifiers</span>, <span class="var">btn</span>: <span class="kw">MouseButton</span>) {</div>
+          <div><span class="ln">5</span>    <span class="kw">if</span> <span class="var">mods</span>.<span class="fn">contains</span>(<span class="kw">Modifiers</span>::<span class="hl">ALT</span>) &amp;&amp; <span class="var">btn</span> == <span class="kw">MouseButton</span>::<span class="hl">LEFT</span> {</div>
+          <div><span class="ln">6</span>        <span class="kw">let</span> <span class="var">wins</span> = <span class="fn">enumerate_windows</span>();</div>
+          <div><span class="ln">7</span>        <span class="kw">let</span> <span class="var">wheel</span> = <span class="fn">Wheel::new</span>(<span class="var">cursor_pos</span>(), <span class="var">wins</span>);</div>
+          <div><span class="ln">8</span>        <span class="var">wheel</span>.<span class="fn">show</span>();</div>
+          <div><span class="ln">9</span>        <span class="cm">// 指针角度 → 扇区命中 → 激活窗口</span></div>
+          <div><span class="ln">10</span>        <span class="kw">let</span> <span class="var">sector</span> = <span class="var">wheel</span>.<span class="fn">hit_test</span>(<span class="var">pointer</span>());</div>
+          <div><span class="ln">11</span>        <span class="kw">if</span> <span class="kw">let</span> <span class="kw">Some</span>(<span class="var">s</span>) = <span class="var">sector</span> {</div>
+          <div><span class="ln">12</span>            <span class="fn">bring_to_front</span>(<span class="var">s</span>.<span class="var">hwnd</span>);</div>
+          <div><span class="ln">13</span>        }</div>
+          <div><span class="ln">14</span>    }</div>
+          <div><span class="ln">15</span>}</div>
+          <div><span class="ln">16</span></div>
+          <div><span class="ln">17</span><span class="cm">// 单 exe · 绿色免安装 · 不需要管理员权限</span></div>
+          <div><span class="ln">18</span><span class="cm">// Windows 10 1809+ / 11 x64</span></div>
+          <div><span class="ln">19</span><span class="var">fn</span> <span class="fn">main</span>() { <span class="var">app</span>.<span class="fn">run</span>(); }<span class="terminal-cursor"></span></div>
+        </div>
+      </div>`
+  },
+  {
+    id: 'chrome',
+    title: 'ShaiZero – 轮盘式窗口切换工具 - Google Chrome',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#fff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L4.34 4.6A9.97 9.97 0 0 1 12 2z" fill="#EA4335"/><path d="M21.5 8.5L16.5 17a5 5 0 0 1-4.5 2.5c-.6 0-1.2-.1-1.7-.3l-3 5.2A10 10 0 0 0 21.5 8.5z" fill="#34A853"/><path d="M3.4 5.6l5.2 9a5 5 0 0 0 4.4 2.4l-3 5.2A10 10 0 0 1 3.4 5.6z" fill="#FBBC05"/><circle cx="12" cy="12" r="4.2" fill="#4285F4"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#fff"/><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 2.5L4.34 4.6A9.97 9.97 0 0 1 12 2z" fill="#EA4335"/><path d="M21.5 8.5L16.5 17a5 5 0 0 1-4.5 2.5c-.6 0-1.2-.1-1.7-.3l-3 5.2A10 10 0 0 0 21.5 8.5z" fill="#34A853"/><path d="M3.4 5.6l5.2 9a5 5 0 0 0 4.4 2.4l-3 5.2A10 10 0 0 1 3.4 5.6z" fill="#FBBC05"/><circle cx="12" cy="12" r="4.2" fill="#4285F4"/></svg>`,
+    content: `
+      <div class="chrome-content">
+        <div class="chrome-toolbar">
+          <div class="chrome-dots"><span></span><span></span><span></span></div>
+          <div class="chrome-address">🔒 github.com/19y/ShaiZero</div>
+        </div>
+        <div class="chrome-page">
+          <h1>19y / ShaiZero</h1>
+          <div class="sub">轮盘式窗口快速切换工具 · Rust · Windows</div>
+          <div class="repo-card">
+            <h2>📦 单 exe，绿色免安装</h2>
+            <p>按住 <b>Alt</b> 在桌面任意位置按下鼠标左键呼出窗口轮盘，指针停在某一格松手，那个窗口就到前台。不需要管理员权限，不需要 .NET / VC++ 运行库。</p>
+            <span class="tag">Windows 10 1809+</span>
+            <span class="tag">Windows 11 x64</span>
+            <span class="tag">MIT + Commons Clause</span>
+          </div>
+        </div>
+      </div>`
+  },
+  {
+    id: 'excel',
+    title: 'Q3预算.xlsx - Excel',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="3" fill="#217346"/><path d="M7 7l3.5 5L7 17h2.5l2.3-3.4L14.2 17h2.5l-3.6-5L17 7h-2.5l-2 2.8L10.5 7H7z" fill="#fff"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="3" fill="#217346"/><path d="M7 7l3.5 5L7 17h2.5l2.3-3.4L14.2 17h2.5l-3.6-5L17 7h-2.5l-2 2.8L10.5 7H7z" fill="#fff"/></svg>`,
+    content: `
+      <div class="excel-content">
+        <div class="excel-ribbon">
+          <span class="active">开始</span><span>插入</span><span>页面布局</span><span>公式</span><span>数据</span><span>审阅</span><span>视图</span>
+        </div>
+        <div class="excel-grid">
+          <table>
+            <tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr>
+            <tr><td>1</td><td><b>项目</b></td><td><b>预算</b></td><td><b>已使用</b></td><td><b>剩余</b></td><td><b>状态</b></td></tr>
+            <tr><td>2</td><td>服务器</td><td>¥ 12,000</td><td class="cell-green">¥ 8,400</td><td>¥ 3,600</td><td>进行中</td></tr>
+            <tr><td>3</td><td>设计外包</td><td>¥ 8,000</td><td class="cell-green">¥ 8,000</td><td>¥ 0</td><td>已完成</td></tr>
+            <tr><td>4</td><td>差旅</td><td>¥ 3,500</td><td class="cell-green">¥ 1,200</td><td>¥ 2,300</td><td>进行中</td></tr>
+            <tr><td>5</td><td>软件订阅</td><td>¥ 2,400</td><td class="cell-green">¥ 2,400</td><td>¥ 0</td><td>已完成</td></tr>
+            <tr><td>6</td><td>市场推广</td><td>¥ 6,000</td><td class="cell-green">¥ 4,100</td><td>¥ 1,900</td><td>进行中</td></tr>
+            <tr><td>7</td><td>办公用品</td><td>¥ 1,200</td><td class="cell-green">¥ 680</td><td>¥ 520</td><td>进行中</td></tr>
+            <tr><td>8</td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>9</td><td><b>合计</b></td><td><b>¥ 33,100</b></td><td><b>¥ 24,780</b></td><td><b>¥ 8,320</b></td><td></td></tr>
+          </table>
+        </div>
+      </div>`
+  },
+  {
+    id: 'terminal',
+    title: 'Windows PowerShell',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="18" rx="3" fill="#0c0c0c"/><path d="M6 8l3 3-3 3" stroke="#16c60c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 15h5" stroke="#cccccc" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="20" height="18" rx="3" fill="#0c0c0c"/><path d="M6 8l3 3-3 3" stroke="#16c60c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 15h5" stroke="#cccccc" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+    content: `
+      <div class="terminal-content">
+        <div><span class="prompt">PS</span> <span class="path">C:\\Users\\dev\\ShaiZero</span>&gt; cargo run -p shaiwin</div>
+        <div class="out">   Compiling shaiwin v0.1.1</div>
+        <div class="out">    Finished dev [unoptimized + debuginfo] target(s) in 2.31s</div>
+        <div class="out">     Running \`target\\debug\\ShaiZero.exe\`</div>
+        <div>&nbsp;</div>
+        <div><span class="hl">[ShaiZero]</span> 托盘图标已启动，按住 Alt + 左键呼出轮盘</div>
+        <div><span class="hl">[ShaiZero]</span> 已枚举 6 个窗口，轮盘就绪</div>
+        <div><span class="hl">[ShaiZero]</span> wheel_radius=150  wheel_seam=5  wheel_open_ms=180</div>
+        <div>&nbsp;</div>
+        <div><span class="prompt">PS</span> <span class="path">C:\\Users\\dev\\ShaiZero</span>&gt; <span class="terminal-cursor"></span></div>
+      </div>`
+  },
+  {
+    id: 'figma',
+    title: 'ShaiZero 官网设计 - Figma',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M8 2h4v6H8a3 3 0 0 1 0-6z" fill="#F24E1E"/><path d="M12 2h4a3 3 0 0 1 0 6h-4V2z" fill="#FF7262"/><path d="M8 8h4v6H8a3 3 0 0 1 0-6z" fill="#A259FF"/><path d="M12 8h4a3 3 0 0 1 0 6h-4V8z" fill="#1ABCFE"/><path d="M8 14h4v3a3 3 0 1 1-4-3z" fill="#0ACF83"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><path d="M8 2h4v6H8a3 3 0 0 1 0-6z" fill="#F24E1E"/><path d="M12 2h4a3 3 0 0 1 0 6h-4V2z" fill="#FF7262"/><path d="M8 8h4v6H8a3 3 0 0 1 0-6z" fill="#A259FF"/><path d="M12 8h4a3 3 0 0 1 0 6h-4V8z" fill="#1ABCFE"/><path d="M8 14h4v3a3 3 0 1 1-4-3z" fill="#0ACF83"/></svg>`,
+    content: `
+      <div class="figma-content">
+        <div class="figma-sidebar">
+          <div style="font-size:10px;color:#666;margin-bottom:8px;">PAGES</div>
+          <div class="layer active">◈ 官网体验</div>
+          <div class="layer">◇ 轮盘组件</div>
+          <div class="layer">◇ 窗口卡片</div>
+          <div class="layer">◇ 图标库</div>
+          <div style="font-size:10px;color:#666;margin:16px 0 8px;">LAYERS</div>
+          <div class="layer">Artboard</div>
+          <div class="layer active">├ Hero</div>
+          <div class="layer">├ Wheel</div>
+          <div class="layer">└ Footer</div>
+        </div>
+        <div class="figma-canvas">
+          <div class="artboard">
+            <div style="font-size:11px;color:#888;margin-bottom:4px;">ShaiZero</div>
+            <div class="bar w60"></div>
+            <div class="bar w40"></div>
+            <div class="accent-bar" style="margin-top:12px;"></div>
+            <div class="bar" style="height:60px;margin-top:8px;background:#f7f7f7;"></div>
+            <div class="circle-row"><span></span><span></span><span></span><span></span></div>
+            <div class="bar w60" style="margin-top:14px;"></div>
+            <div class="bar w40"></div>
+          </div>
+        </div>
+      </div>`
+  },
+  {
+    id: 'notion',
+    title: '项目排期 - Notion',
+    icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="2" width="18" height="20" rx="3" fill="#fff" stroke="#37352f" stroke-width="1.3"/><path d="M8 7l6 0M8 12l6 0M8 17l4 0" stroke="#37352f" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="2" width="18" height="20" rx="3" fill="#fff"/><path d="M8 7l6 0M8 12l6 0M8 17l4 0" stroke="#37352f" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    content: `
+      <div class="notion-content">
+        <div class="emoji-title">📋</div>
+        <h1>项目排期</h1>
+        <div class="todo done"><div class="box"></div><span>需求梳理与原型</span></div>
+        <div class="todo done"><div class="box"></div><span>轮盘几何算法（core）</span></div>
+        <div class="todo done"><div class="box"></div><span>Win32 钩子与窗口枚举</span></div>
+        <div class="todo"><div class="box"></div><span>官网交互体验页</span></div>
+        <div class="todo"><div class="box"></div><span>设置窗口与主题预览</span></div>
+        <div class="todo"><div class="box"></div><span>多屏 DPI 适配测试</span></div>
+        <div class="divider"></div>
+        <div class="callout">💡 同一个软件开很多窗口时，不用再把鼠标移到任务栏翻缩略图：呼出轮盘，朝目标窗口方向一甩就能切换。</div>
+      </div>`
+  },
+  {
+    id: 'about',
+    title: '关于 ShaiZero',
+    icon: `<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/><path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/><circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/></svg>`,
+    taskbarIcon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#00e5ff" stroke-width="1.2" opacity="0.4"/><path d="M12 4 L18.5 8 L18.5 16 L12 20 L5.5 16 L5.5 8 Z" stroke="#00e5ff" stroke-width="1.4" fill="rgba(0,229,255,0.1)"/><circle cx="12" cy="12" r="2.5" fill="#00e5ff"/></svg>`,
+    content: `
+      <div class="about-content" style="padding:36px 40px;background:linear-gradient(160deg,rgba(0,229,255,0.06),transparent 60%);height:100%;overflow:auto;">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
+          <svg viewBox="0 0 48 48" fill="none" style="width:56px;height:56px;"><circle cx="24" cy="24" r="21" stroke="#00e5ff" stroke-width="1.5" opacity="0.3"/><path d="M24 8 L37 16 L37 32 L24 40 L11 32 L11 16 Z" stroke="#00e5ff" stroke-width="1.8" fill="rgba(0,229,255,0.08)"/><circle cx="24" cy="24" r="5" fill="#00e5ff" opacity="0.7"/></svg>
+          <div>
+            <h1 style="font-size:26px;font-weight:700;letter-spacing:-0.3px;">ShaiZero</h1>
+            <div style="font-size:13px;color:var(--text-dim);margin-top:3px;">轮盘式窗口快速切换 · 单 exe · 绿色免安装</div>
+          </div>
+        </div>
+        <p style="font-size:14px;line-height:1.75;color:rgba(232,234,240,0.75);margin-bottom:14px;max-width:560px;">ShaiZero 是一个 Windows 窗口快速切换工具。按住 <b>Alt</b> 在桌面任意位置按下鼠标左键，轮盘展开，指针停在某一格松手，对应窗口就到前台；拖回圆心或右键取消。</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:18px 0;">
+          <kbd style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 12px;font-size:12px;font-family:var(--font);color:var(--text);"><b>Alt</b> + 左键</kbd>
+          <kbd style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 12px;font-size:12px;font-family:var(--font);color:var(--text);"><b>Ctrl</b> + <b>T</b> 打开设置</kbd>
+        </div>
+        <p style="font-size:14px;line-height:1.75;color:rgba(232,234,240,0.75);margin-bottom:14px;max-width:560px;">不需要管理员权限，不需要 .NET / VC++ 运行库。设置文件在 <code style="background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:4px;font-size:12px;">%LOCALAPPDATA%\\ShaiZero\\settings.txt</code>，轮盘半径、扇区间距、动画、主题均可调。</p>
+        <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;">
+          <a href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;border:none;background:var(--accent);color:#001318;box-shadow:0 4px 20px rgba(0,229,255,0.25);">↓ 下载最新版</a>
+          <a href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.07);color:var(--text);">在 GitHub 查看</a>
+          <button onclick="openCoffeeModal()" style="display:inline-flex;align-items:center;gap:7px;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid rgba(255,180,80,0.25);background:rgba(255,180,80,0.12);color:#ffb450;font-family:var(--font);">☕ 请作者喝咖啡</button>
+        </div>
+      </div>`
+  }
+];
+
+/* ============================================================
+   状态
+   ============================================================ */
+const state = {
+  windows: [],
+  activeId: null,
+  wheelVisible: false,
+  wheelCenter: { x: 0, y: 0 },
+  wheelSectors: [],
+  highlightedIndex: -1,
+  toastTimer: null,
+  zCounter: 100
+};
+
+const $ = (sel) => document.querySelector(sel);
+
+/* ============================================================
+   工具
+   ============================================================ */
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeArc(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const startOuter = polarToCartesian(cx, cy, outerR, endAngle);
+  const endOuter = polarToCartesian(cx, cy, outerR, startAngle);
+  const startInner = polarToCartesian(cx, cy, innerR, endAngle);
+  const endInner = polarToCartesian(cx, cy, innerR, startAngle);
+  const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
+  return `M ${startOuter.x} ${startOuter.y} A ${outerR} ${outerR} 0 ${largeArc} 0 ${endOuter.x} ${endOuter.y} L ${endInner.x} ${endInner.y} A ${innerR} ${innerR} 0 ${largeArc} 1 ${startInner.x} ${startInner.y} Z`;
+}
+
+function showToast(msg, duration = 2200) {
+  const toast = $('#toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+/* ============================================================
+   咖啡赞赏弹窗
+   ============================================================ */
+function openCoffeeModal() {
+  const modal = $('#coffee-modal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeCoffeeModal() {
+  const modal = $('#coffee-modal');
+  if (!modal.classList.contains('open')) return;
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+// 让 openCoffeeModal 全局可调用（onclick 需要）
+window.openCoffeeModal = openCoffeeModal;
+window.closeCoffeeModal = closeCoffeeModal;
+
+/* ============================================================
+   窗口创建
+   ============================================================ */
+function createWindow(data, index) {
+  const el = document.createElement('div');
+  el.className = 'window';
+  el.dataset.id = data.id;
+  el.style.zIndex = state.zCounter++;
+  el.style.left = (150 + index * 30) + 'px';
+  el.style.top = (60 + index * 22) + 'px';
+
+  el.innerHTML = `
+    <div class="titlebar">
+      <div class="app-icon">${data.icon}</div>
+      <div class="title-text">${data.title}</div>
+      <div class="win-controls">
+        <button class="min-btn" title="最小化">─</button>
+        <button title="最大化">□</button>
+        <button class="close-btn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div class="window-content">${data.content}</div>
+  `;
+
+  $('#windows-layer').appendChild(el);
+
+  makeDraggable(el, el.querySelector('.titlebar'));
+
+  el.querySelector('.min-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    el.classList.add('hidden');
+    data.taskbarEl.classList.remove('focused');
+    if (state.activeId === data.id) state.activeId = null;
+    showToast('窗口已最小化，可通过任务栏或轮盘重新打开');
+  });
+
+  el.querySelector('.close-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    el.classList.add('hidden');
+    data.taskbarEl.classList.remove('focused');
+    if (state.activeId === data.id) state.activeId = null;
+  });
+
+  el.addEventListener('mousedown', () => {
+    if (state.activeId !== data.id) activateWindow(data.id);
+  });
+
+  // 任务栏图标
+  const tb = document.createElement('button');
+  tb.className = 'tb-btn running';
+  tb.title = data.title;
+  tb.innerHTML = data.taskbarIcon;
+  tb.addEventListener('click', () => {
+    if (el.classList.contains('hidden')) {
+      el.classList.remove('hidden');
+      activateWindow(data.id);
+    } else if (state.activeId === data.id) {
+      el.classList.add('hidden');
+      tb.classList.remove('focused');
+      state.activeId = null;
+    } else {
+      activateWindow(data.id);
+    }
+  });
+  $('#taskbar-apps').appendChild(tb);
+
+  data.taskbarEl = tb;
+  return { data, el, taskbarEl: tb };
+}
+
+function activateWindow(id) {
+  const win = state.windows.find(w => w.data.id === id);
+  if (!win) return;
+
+  state.windows.forEach(w => {
+    w.el.classList.remove('active');
+    w.taskbarEl.classList.remove('focused');
+  });
+
+  win.el.classList.remove('hidden');
+  win.el.style.zIndex = ++state.zCounter;
+  win.el.classList.add('active');
+  win.taskbarEl.classList.add('focused');
+  state.activeId = id;
+}
+
+function makeDraggable(el, handle) {
+  let startX, startY, origLeft, origTop, dragging = false;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;
+    if (e.altKey) return;
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    origLeft = el.offsetLeft;
+    origTop = el.offsetTop;
+    handle.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    el.style.left = Math.max(-el.offsetWidth + 120, Math.min(window.innerWidth - 120, origLeft + dx)) + 'px';
+    el.style.top = Math.max(0, Math.min(window.innerHeight - 80, origTop + dy)) + 'px';
+  });
+
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+    handle.style.cursor = 'default';
+  });
+}
+
+/* ============================================================
+   轮盘
+   ============================================================ */
+function getWheelWindows() {
+  return state.windows.filter(w => w.data.id !== 'about' && !w.el.classList.contains('hidden'));
+}
+
+function showWheel(cx, cy) {
+  const wins = getWheelWindows();
+  if (wins.length === 0) { showToast('没有可切换的窗口'); return; }
+
+  state.wheelVisible = true;
+  state.wheelCenter = { x: cx, y: cy };
+  state.highlightedIndex = -1;
+
+  const svg = $('#wheel-svg');
+  const R_OUTER = 190;
+  const R_INNER = 66;
+  const n = wins.length;
+  const angleStep = 360 / n;
+  const size = R_OUTER * 2 + 40;
+
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  svg.style.left = (cx - R_OUTER - 20) + 'px';
+  svg.style.top = (cy - R_OUTER - 20) + 'px';
+
+  const center = size / 2;
+  svg.innerHTML = '';
+
+  state.wheelSectors = [];
+  wins.forEach((win, i) => {
+    const start = i * angleStep;
+    const end = (i + 1) * angleStep;
+    const mid = start + angleStep / 2;
+    const d = describeArc(center, center, R_INNER, R_OUTER, start, end);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'wheel-sector');
+    svg.appendChild(path);
+
+    const iconR = R_INNER + 36;
+    const iconPos = polarToCartesian(center, center, iconR, mid);
+    const iconG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    iconG.setAttribute('class', 'wheel-icon');
+    iconG.setAttribute('transform', `translate(${iconPos.x - 13}, ${iconPos.y - 13})`);
+    iconG.innerHTML = win.data.icon;
+    const innerSvg = iconG.querySelector('svg');
+    if (innerSvg) { innerSvg.setAttribute('width', '26'); innerSvg.setAttribute('height', '26'); }
+    svg.appendChild(iconG);
+
+    const labelR = R_OUTER - 22;
+    const labelPos = polarToCartesian(center, center, labelR, mid);
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', labelPos.x);
+    label.setAttribute('y', labelPos.y);
+    label.setAttribute('class', 'wheel-label');
+    const names = { vscode: 'VS Code', chrome: 'Chrome', excel: 'Excel', terminal: 'PowerShell', figma: 'Figma', notion: 'Notion' };
+    label.textContent = names[win.data.id] || win.data.id;
+    svg.appendChild(label);
+
+    state.wheelSectors.push({ win, path, label, startAngle: start, endAngle: end, midAngle: mid });
+  });
+
+  const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  centerCircle.setAttribute('cx', center);
+  centerCircle.setAttribute('cy', center);
+  centerCircle.setAttribute('r', R_INNER - 2);
+  centerCircle.setAttribute('class', 'wheel-center');
+  svg.appendChild(centerCircle);
+
+  const centerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  centerText.setAttribute('x', center);
+  centerText.setAttribute('y', center);
+  centerText.setAttribute('class', 'wheel-center-text');
+  centerText.textContent = '拖回取消';
+  svg.appendChild(centerText);
+
+  const outerRing = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  outerRing.setAttribute('cx', center);
+  outerRing.setAttribute('cy', center);
+  outerRing.setAttribute('r', R_OUTER + 6);
+  outerRing.setAttribute('fill', 'none');
+  outerRing.setAttribute('stroke', 'rgba(255,255,255,0.06)');
+  outerRing.setAttribute('stroke-width', '1');
+  svg.appendChild(outerRing);
+
+  $('#wheel-overlay').classList.add('visible');
+  $('#hint').classList.add('hidden');
+
+  svg.style.transition = 'none';
+  svg.style.transform = 'scale(0.92)';
+  requestAnimationFrame(() => {
+    svg.style.transition = 'transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1)';
+    svg.style.transform = 'scale(1)';
+  });
+}
+
+function updateWheelSelection(mx, my) {
+  if (!state.wheelVisible) return;
+
+  const svg = $('#wheel-svg');
+  const rect = svg.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
+  const dx = mx - centerX;
+  const dy = my - centerY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist < 66) {
+    state.highlightedIndex = -1;
+    state.wheelSectors.forEach(s => {
+      s.path.classList.remove('highlighted');
+      s.label.classList.remove('highlighted');
+    });
+    return;
+  }
+
+  let angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+  if (angle < 0) angle += 360;
+
+  const n = state.wheelSectors.length;
+  const step = 360 / n;
+  let index = Math.floor(angle / step) % n;
+
+  if (index !== state.highlightedIndex) {
+    state.highlightedIndex = index;
+    state.wheelSectors.forEach((s, i) => {
+      s.path.classList.toggle('highlighted', i === index);
+      s.label.classList.toggle('highlighted', i === index);
+    });
+  }
+}
+
+function hideWheel(select) {
+  if (!state.wheelVisible) return;
+
+  if (select && state.highlightedIndex >= 0 && state.highlightedIndex < state.wheelSectors.length) {
+    const win = state.wheelSectors[state.highlightedIndex].win;
+    win.el.classList.remove('hidden');
+    activateWindow(win.data.id);
+    showToast(`已切换到：${win.data.title.split(' - ')[0]}`);
+  } else if (select) {
+    showToast('已取消');
+  }
+
+  state.wheelVisible = false;
+  state.highlightedIndex = -1;
+  $('#wheel-overlay').classList.remove('visible');
+  $('#hint').classList.remove('hidden');
+  $('#wheel-svg').innerHTML = '';
+}
+
+/* ============================================================
+   事件
+   ============================================================ */
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt') {
+    e.preventDefault();
+    $('#hint').innerHTML = `<kbd>Alt</kbd> 已按下 · 现在按住 <span class="accent">鼠标左键</span> 并拖动呼出轮盘`;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+    e.preventDefault();
+    const win = state.windows.find(w => w.data.id === 'about');
+    if (win) {
+      win.el.classList.remove('hidden');
+      win.taskbarEl.classList.remove('hidden');
+      activateWindow('about');
+    }
+  }
+  if (e.key === 'Escape') {
+    closeCoffeeModal();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') {
+    $('#hint').innerHTML = `<kbd>Alt</kbd> + <span style="opacity:0.6">鼠标左键</span> 呼出轮盘 · 拖到扇区松开即可切换`;
+  }
+});
+
+window.addEventListener('mousedown', (e) => {
+  // 弹窗打开时，不触发轮盘
+  if ($('#coffee-modal').classList.contains('open')) return;
+
+  if (e.button === 2 && state.wheelVisible) {
+    e.preventDefault();
+    hideWheel(false);
+    return;
+  }
+  if (e.button === 0 && e.altKey && !state.wheelVisible) {
+    showWheel(e.clientX, e.clientY);
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (state.wheelVisible) updateWheelSelection(e.clientX, e.clientY);
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 0 && state.wheelVisible) {
+    hideWheel(true);
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('contextmenu', (e) => {
+  if (state.wheelVisible) e.preventDefault();
+});
+
+/* ============================================================
+   初始化
+   ============================================================ */
+function init() {
+  WINDOWS_DATA.forEach((data, i) => {
+    const win = createWindow(data, i);
+    state.windows.push(win);
+  });
+
+  activateWindow('vscode');
+
+  const aboutWin = state.windows.find(w => w.data.id === 'about');
+  if (aboutWin) {
+    aboutWin.el.classList.add('hidden');
+    aboutWin.taskbarEl.classList.add('hidden');
+  }
+
+  document.querySelectorAll('.desktop-icon').forEach(icon => {
+    icon.addEventListener('dblclick', () => {
+      const open = icon.dataset.open;
+      if (open) {
+        const win = state.windows.find(w => w.data.id === open);
+        if (win) {
+          win.el.classList.remove('hidden');
+          win.taskbarEl.classList.remove('hidden');
+          activateWindow(open);
+        }
+      }
+    });
+  });
+
+  $('#start-btn').addEventListener('click', () => {
+    const win = state.windows.find(w => w.data.id === 'about');
+    if (win) {
+      win.el.classList.remove('hidden');
+      win.taskbarEl.classList.remove('hidden');
+      activateWindow('about');
+    }
+  });
+
+  // 时钟
+  function updateClock() {
+    const now = new Date();
+    $('#clock-time').textContent = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    $('#clock-date').textContent = now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+
+  /* ---------- 咖啡弹窗事件绑定 ---------- */
+  const modal = $('#coffee-modal');
+
+  // 关闭按钮
+  $('#coffee-close').addEventListener('click', closeCoffeeModal);
+
+  // 点遮罩空白关闭
+  modal.addEventListener('mousedown', (e) => {
+    if (e.target === modal) closeCoffeeModal();
+  });
+
+  // 阻止弹窗内部点击冒泡到 mask（其实用 target 判断已足够）
+  modal.querySelector('.coffee-dialog').addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+
+  // 首次提示
+  setTimeout(() => {
+    showToast('按住 Alt + 鼠标左键，试试轮盘选窗 ✨', 3600);
+  }, 1000);
+}
+
+init();
+</script>
 </body>
 </html>

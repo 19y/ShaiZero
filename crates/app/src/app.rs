@@ -1425,7 +1425,7 @@ pub(crate) fn present_layer(
 
 thread_local! {
     /// The scratch bitmap every [`blit_pixmap`] copy goes through. The settings
-    /// page draws six thumbnails per paint and the switch draws its art every
+    /// page draws seven thumbnails per paint and the switch draws its art every
     /// 16ms of a slide; making and destroying a DIB section for each of those
     /// was an allocation and a compatible DC the frame paid for every time.
     static BLIT_SCRATCH: RefCell<Option<Dib>> = const { RefCell::new(None) };

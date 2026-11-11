@@ -57,11 +57,11 @@ pub const WHEEL_PALETTE_DEFAULT: u32 = 0;
 pub const WHEEL_PALETTE_MAX: u32 = 3;
 pub const WHEEL_STYLE_DEFAULT: u32 = 0;
 pub const WHEEL_STYLE_MAX: u32 = 2;
-/// The six named looks the dial can wear: minimal outline, dark glass, glow,
-/// tactile card, self-lit neon and paper card. `1` is the glass the dial shipped
-/// with.
-pub const WHEEL_THEME_DEFAULT: u32 = 1;
-pub const WHEEL_THEME_MAX: u32 = 5;
+/// The seven named looks the dial can wear: minimal outline, dark glass, glow,
+/// tactile card, self-lit neon, paper card and the site's cyan outline.
+/// `0` is the outline the dial now ships with.
+pub const WHEEL_THEME_DEFAULT: u32 = 0;
+pub const WHEEL_THEME_MAX: u32 = 6;
 /// How loud the sectors are: 0 soft, 1 medium, 2 vivid. Only the accent colour
 /// moves - the plate, seams, strokes and shadows belong to the theme.
 pub const WHEEL_ACCENT_DEFAULT: u32 = 1;
@@ -431,7 +431,7 @@ pub struct Draft {
     pub trigger_button: u8,
     /// The dial's named look, accent loudness, sector spacing and open animation.
     /// The named look the renderer follows: 0 outline, 1 glass, 2 glow, 3 card,
-    /// 4 neon, 5 paper.
+    /// 4 neon, 5 paper, 6 site.
     pub wheel_theme: u32,
     pub wheel_accent: u32,
     pub wheel_seam: f32,
@@ -1788,9 +1788,10 @@ fn unescape_field(text: &str) -> String {
 /// Which keys and which button open the dial, in the shape the gesture machine
 /// is built from.
 ///
-/// One thing is refused on the way: a trigger with no modifier at all asks for
-/// every ordinary drag, so an empty set falls back to the shipped `Ctrl`.
-/// Why a recorded binding cannot be saved, or should make the user think.
+/// One thing is refused on the way: a trigger with no modifier and no key at
+/// all asks for every ordinary drag, so that empty gesture falls back to the
+/// shipped `Ctrl`. A key on its own is allowed - a mouse side button remapped to
+/// a key is exactly the single-press trigger somebody may want.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TriggerProblem {
     /// Not a usable gesture at all.
@@ -1809,7 +1810,7 @@ pub fn trigger_for(mods: u32, vk: u32, button: u8, threshold: i32) -> Trigger {
         win: mods & MOD_WIN != 0,
     };
     // A bare mouse drag would swallow every click on the desktop; a bare key is
-    // the user's own choice when it is a function key.
+    // the user's own choice, so a single key with no modifier is left alone.
     if !(want.alt || want.ctrl || want.shift || want.win) && vk == 0 {
         want = Mods::ctrl();
     }
@@ -1890,10 +1891,6 @@ pub fn trigger_problem(
     }
     if vk == 0 && mods == 0 {
         // A bare mouse button would take every click on the desktop.
-        return Some(TriggerProblem::Invalid);
-    }
-    if vk != 0 && mods == 0 && !(0x70..=0x87).contains(&vk) {
-        // A bare letter key would open the wheel while typing.
         return Some(TriggerProblem::Invalid);
     }
     if vk != 0
@@ -2172,12 +2169,13 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         let s = Settings::default();
         // A bare click is not a gesture.
         assert_eq!(trigger_problem(0, 0, 0, &s), Some(TriggerProblem::Invalid));
-        // A bare letter would fire while typing.
-        assert_eq!(trigger_problem(0, 0x41, 0, &s), Some(TriggerProblem::Invalid));
+        // A single key is allowed for mouse-side-button remaps; a letter warns
+        // because it will also fire while typing.
+        assert_eq!(trigger_problem(0, 0x41, 0, &s), Some(TriggerProblem::Risky));
+        // A function key is just as usable, with the same warning.
+        assert_eq!(trigger_problem(0, 0x76, 0, &s), Some(TriggerProblem::Risky));
         // A modifier is a chord part, never the key.
         assert_eq!(trigger_problem(MOD_ALT, 0x11, 0, &s), Some(TriggerProblem::Invalid));
-        // A bare function key is usable, with a warning.
-        assert_eq!(trigger_problem(0, 0x76, 0, &s), Some(TriggerProblem::Risky));
         // Exactly the favourite or panel chord is a conflict. The favourite
         // answers to Ctrl+2, the panel to Ctrl+T.
         let fav = trigger_problem(MOD_CONTROL, VK_2, 0, &s);

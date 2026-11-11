@@ -1,0 +1,49 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'robots.txt'
+      - 'assets/site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare site
+        run: |
+          mkdir -p _site/assets/site
+          cp index.html robots.txt .nojekyll _site/
+          cp assets/site/donate-qr.png _site/assets/site/
+
+      # 站点开启 GitHub Pages 后统一用 Actions 发布；已存在时切换 build_type。
+      - name: Point Pages at Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${{ github.repository }}/pages" -f build_type=workflow >/dev/null 2>&1 \
+            || gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow >/dev/null
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

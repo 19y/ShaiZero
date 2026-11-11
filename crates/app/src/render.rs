@@ -486,6 +486,14 @@ const NEON_SUB: (u8, u8, u8) = (150, 215, 255);
 const PAPER_INK: (u8, u8, u8) = (43, 38, 32);
 const PAPER_SUB: (u8, u8, u8) = (110, 102, 90);
 
+/// The site's dial: near-black sectors with a single cyan highlight, white
+/// hairlines between them and a white label. These are the colours the landing
+/// page's wheel uses, taken as-is so the software and the page look the same.
+const SITE_CYAN: (u8, u8, u8) = (0, 229, 255);
+const SITE_SECTOR: (u8, u8, u8) = (18, 22, 32);
+const SITE_INK: (u8, u8, u8) = (232, 234, 240);
+const SITE_SUB: (u8, u8, u8) = (150, 172, 190);
+
 /// Linear blend of two colours, `t` running 0 (a) to 1 (b).
 fn mix_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
     let Rgb(ar, ag, ab) = a;
@@ -556,8 +564,8 @@ pub struct WheelView<'a> {
     /// The air between neighbouring sectors, in logical pixels.
     pub seam: f32,
     /// The named look: 0 minimal outline, 1 dark glass, 2 glow, 3 tactile card,
-    /// 4 neon, 5 paper card. It decides the disc, the fill, the rim and the light
-    /// around it.
+    /// 4 neon, 5 paper card, 6 the site's cyan outline. It decides the disc, the
+    /// fill, the rim and the light around it.
     pub theme: u32,
 }
 
@@ -652,6 +660,10 @@ impl Painter {
         }
         if view.theme == 5 {
             self.compose_paper_base_into(canvas, view);
+            return;
+        }
+        if view.theme == 6 {
+            self.compose_site_base_into(canvas, view);
             return;
         }
         canvas.fill(Color::TRANSPARENT);
@@ -1075,6 +1087,111 @@ impl Painter {
         }
     }
 
+    /// The site's still half: the landing page's dial is a dark translucent
+    /// plate under one large drop shadow, with a thin white edge and no inner
+    /// light. The sectors and the hub are drawn once by `compose_seats_into`.
+    fn compose_site_base_into(&mut self, canvas: &mut Pixmap, view: &WheelView) {
+        canvas.fill(Color::TRANSPARENT);
+        let s = view.scale.max(0.001);
+        let cx = canvas.width() as f32 / 2.0;
+        let cy = canvas.height() as f32 / 2.0;
+        let outer = view
+            .bounds
+            .last()
+            .map(|b| b.hi)
+            .unwrap_or(view.radius)
+            .max(view.hub + 10.0);
+        let rim = (outer + DISC_MARGIN) * s;
+        let appear = view.open.clamp(0.0, 1.0);
+
+        // `filter: drop-shadow(0 0 50px rgba(0,0,0,0.7))` on the page, drawn as
+        // the one radial wash a layered window can afford.
+        let (sx, sy) = (cx, cy - 6.0 * s);
+        let reach = (rim + 26.0 * s)
+            .min(cx - 1.0)
+            .min(sy - 1.0)
+            .min(canvas.height() as f32 - sy - 1.0)
+            .min(canvas.width() as f32 - cx - 1.0);
+        if let Some(path) = circle_path(sx, sy, reach) {
+            if let Some(shader) = RadialGradient::new(
+                Point::from_xy(sx, sy),
+                (rim * 0.85).min(reach),
+                Point::from_xy(sx, sy),
+                reach,
+                vec![
+                    GradientStop::new(
+                        0.0,
+                        Color::from_rgba8(0, 0, 0, (0.42 * appear * 255.0) as u8),
+                    ),
+                    GradientStop::new(1.0, Color::from_rgba8(0, 0, 0, 0)),
+                ],
+                SpreadMode::Pad,
+                Transform::identity(),
+            ) {
+                canvas.fill_path(
+                    &path,
+                    &Paint {
+                        shader,
+                        ..Default::default()
+                    },
+                    FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
+
+        if appear > 0.01 {
+            if let Some(path) = circle_path(cx, cy, rim) {
+                if let Some(shader) = LinearGradient::new(
+                    Point::from_xy(cx, cy - rim),
+                    Point::from_xy(cx, cy + rim),
+                    vec![
+                        GradientStop::new(
+                            0.0,
+                            Color::from_rgba8(18, 22, 32, (0.86 * appear * 255.0) as u8),
+                        ),
+                        GradientStop::new(
+                            1.0,
+                            Color::from_rgba8(10, 12, 20, (0.95 * appear * 255.0) as u8),
+                        ),
+                    ],
+                    SpreadMode::Pad,
+                    Transform::identity(),
+                ) {
+                    canvas.fill_path(
+                        &path,
+                        &Paint {
+                            shader,
+                            anti_alias: true,
+                            ..Default::default()
+                        },
+                        FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+                stroke_path(
+                    canvas,
+                    &path,
+                    solid(255, 255, 255, 0.10 * appear),
+                    1.2 * s,
+                    Transform::identity(),
+                );
+                let pi = std::f32::consts::PI;
+                if let Some(light) = arc_path(cx, cy, rim - 0.8 * s, pi, 2.0 * pi) {
+                    stroke_path(
+                        canvas,
+                        &light,
+                        solid(255, 255, 255, 0.16 * appear),
+                        1.5 * s,
+                        Transform::identity(),
+                    );
+                }
+            }
+        }
+    }
+
     /// One sector: the tinted annulus, its rim, the name it carries, and the pin
     /// mark if the window owns a direction.
     fn draw_sector(
@@ -1113,7 +1230,18 @@ impl Painter {
         let Some(path) = sector_path(cx, cy, lo + 1.5 * s, hi - 1.0 * s, a0, a1) else {
             return;
         };
-        let Rgb(r, g, b) = sec.accent;
+        let Rgb(accent_r, accent_g, accent_b) = sec.accent;
+        // The site theme does not tint slices by app: every cell is the page's
+        // near-black and only the hot one is cyan.
+        let (r, g, b) = if view.theme == 6 {
+            if sec.hot {
+                SITE_CYAN
+            } else {
+                SITE_SECTOR
+            }
+        } else {
+            (accent_r, accent_g, accent_b)
+        };
         // The card theme lays each slice on the paper with a small drop shadow
         // under it: a second fill of the same path, offset down, drawn first.
         if view.theme == 3 {
@@ -1151,6 +1279,15 @@ impl Painter {
                     (0.74, 0.54)
                 }
             }
+            // Site: translucent panels, the hot one lit by cyan at a quarter
+            // strength, exactly the page's `rgba(0,229,255,0.24)`.
+            6 => {
+                if sec.hot {
+                    (0.26, 0.20)
+                } else {
+                    (0.80, 0.74)
+                }
+            }
             _ => {
                 if sec.hot {
                     (0.50, 0.30)
@@ -1185,9 +1322,11 @@ impl Painter {
         }
         // Neon: two wide, faint strokes under the rim read as light escaping the
         // slice - a layered window cannot blur, so the halo is drawn in rings.
-        if view.theme == 2 && sec.hot {
-            for (width, alpha) in [(10.0, 0.10f32), (5.5, 0.18)] {
-                stroke_path(canvas, &path, solid(r, g, b, alpha), width * s, ts);
+        // The site switches its highlight on with the same cyan bloom.
+        if (view.theme == 2 || view.theme == 6) && sec.hot {
+            let (cr, cg, cb) = if view.theme == 6 { SITE_CYAN } else { (r, g, b) };
+            for (width, alpha) in [(12.0, 0.06f32), (6.0, 0.12)] {
+                stroke_path(canvas, &path, solid(cr, cg, cb, alpha), width * s, ts);
             }
         }
         let (rim_a, rim_w) = match view.theme {
@@ -1203,6 +1342,11 @@ impl Painter {
                 if sec.hot { 0.98 } else { 0.62 },
                 if sec.hot { 1.8 } else { 1.1 },
             ),
+            // Site: hairline white between panels, a cyan edge on the hot one.
+            6 => (
+                if sec.hot { 0.85 } else { 0.07 },
+                if sec.hot { 1.5 } else { 1.0 },
+            ),
             _ => {
                 if sec.hot {
                     (0.95, 1.8)
@@ -1211,7 +1355,16 @@ impl Painter {
                 }
             }
         };
-        stroke_path(canvas, &path, solid(r, g, b, rim_a), rim_w * s, ts);
+        if view.theme == 6 {
+            let (rr, rg, rb) = if sec.hot {
+                SITE_CYAN
+            } else {
+                (255, 255, 255)
+            };
+            stroke_path(canvas, &path, solid(rr, rg, rb, rim_a), rim_w * s, ts);
+        } else {
+            stroke_path(canvas, &path, solid(r, g, b, rim_a), rim_w * s, ts);
+        }
         if sec.current {
             // The window already in front: hollow and dashed, so the direction
             // the pin remembers is still drawn but nothing is claimed by it.
@@ -1254,6 +1407,16 @@ impl Painter {
                     (250, 246, 238)
                 };
                 (base, (232, 222, 206))
+            }
+            // Site: white type on the near-black panels, the hot label pure
+            // white against the cyan.
+            6 => {
+                let base = if sec.hot {
+                    (255, 255, 255)
+                } else {
+                    SITE_INK
+                };
+                (base, SITE_SUB)
             }
             _ => {
                 let base = if sec.hot { WHEEL_INK_HOT } else { WHEEL_INK };
@@ -1797,6 +1960,14 @@ impl Painter {
                 (120, 110, 95, 0.75),
                 (180, 170, 155, 0.85),
             ),
+            // Site: the page's dark hub with a cyan ring when choosing or
+            // cancelling, and a faint white hairline while idle.
+            6 => (
+                (18, 22, 32, 0.92),
+                (0, 229, 255, 0.95),
+                (0, 229, 255, 0.65),
+                (255, 255, 255, 0.28),
+            ),
             _ => (
                 (10, 14, 20, 0.72),
                 (160, 190, 225, 0.90),
@@ -1892,11 +2063,13 @@ impl Painter {
             let head_ink = match view.theme {
                 4 => NEON_INK,
                 5 => PAPER_INK,
+                6 => SITE_INK,
                 _ => (242, 246, 251),
             };
             let sub_ink = match view.theme {
                 4 => NEON_SUB,
                 5 => PAPER_SUB,
+                6 => SITE_SUB,
                 _ => (127, 154, 194),
             };
             if let Some(p) = self.label_bold(&head, px1, head_ink) {
@@ -1923,6 +2096,7 @@ impl Painter {
             let note_ink = match view.theme {
                 4 => NEON_INK,
                 5 => PAPER_INK,
+                6 => SITE_INK,
                 _ => WHEEL_INK,
             };
             if let Some(p) = self.label(&text, px, note_ink) {
@@ -2229,7 +2403,7 @@ mod tests {
         let side = ((geometry.extent(1) + DISC_SHADOW_PAD) * 2.0) as u32;
         let seats = six_seats();
         let mut painter = Painter::new();
-        for theme in 0..6 {
+        for theme in 0..7 {
             let mut view = glass_frame(&seats, &bounds);
             view.theme = theme;
             if theme >= 4 {
@@ -2310,13 +2484,14 @@ mod tests {
                 "theme {theme}: no pixel on the canvas edge may carry the shadow: a cut shadow is a square edge"
             );
             // The two new themes must differ in structure, not only in colour:
-            // neon is a lit black plate, paper is a lit sheet.
+            // neon is a lit black plate, paper is a lit sheet. The site theme is
+            // the page's near-black plate with a cyan highlight.
             let (r, g, b) = colour(&canvas, side / 2, side / 2);
             let luma = (r as u32 + g as u32 + b as u32) / 3;
-            if theme == 4 {
+            if theme == 4 || theme == 6 {
                 assert!(
                     luma < 40,
-                    "theme 4 must be a near-black plate at its hub, got {luma}"
+                    "theme {theme} must be a near-black plate at its hub, got {luma}"
                 );
             }
             if theme == 5 {
