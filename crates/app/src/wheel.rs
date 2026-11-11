@@ -19,12 +19,12 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use shaiwin_core::gesture::{self, Button, Machine, Mods, PressContext, Trigger, TriggerInput};
-use shaiwin_core::theme::{accent_for, Rgb};
+use shaiwin_core::theme::{DEFAULT_SECTOR_COLOUR, Rgb};
 use shaiwin_core::wheel::{self as dial, Aim, Dial, Geometry};
 use shaiwin_platform_win::hook::{self, Modifiers, MouseButton, Observation, Verdict};
 use shaiwin_platform_win::monitor::{self, Monitor};
@@ -341,7 +341,9 @@ pub fn seed_seat_windows(list: &[isize]) {
 
 /// What the user typed for each window. A map keyed by the same fingerprint a pin
 /// uses, so a tag and a favourite and a pin all speak about one window the same
-/// way, and none of them survives a rename of the title's first word.
+/// way. [`fingerprint`] hands a live window the mark it was first seen with, so
+/// a page that renames its tab does not take the label with it; across a restart
+/// the title as it stands then is all there is to key on.
 fn tags() -> &'static Mutex<BTreeMap<String, String>> {
     static TAGS: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
     TAGS.get_or_init(|| Mutex::new(BTreeMap::new()))
@@ -394,6 +396,75 @@ fn favorite_rank(fingerprint: &str) -> Option<usize> {
         .and_then(|list| list.iter().position(|f| f == fingerprint))
 }
 
+/// The colours the user picked by hand, keyed like the tags.
+fn colors() -> &'static Mutex<BTreeMap<String, Rgb>> {
+    static COLORS: OnceLock<Mutex<BTreeMap<String, Rgb>>> = OnceLock::new();
+    COLORS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// The other half of [`seed_tags`].
+pub fn seed_colors(list: &[crate::settings::Colour]) {
+    let mut held = colors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    held.clear();
+    for colour in list {
+        held.insert(colour.window.clone(), colour.rgb);
+    }
+    crate::log!(
+        "wheel: {} hand-picked sector colour(s) read from the settings",
+        held.len()
+    );
+}
+
+/// The colour the user picked for a window, if any.
+fn color_for(fingerprint: &str) -> Option<Rgb> {
+    colors()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(fingerprint).copied())
+}
+
+/// The sector sizes the user picked by hand, keyed like the colours.
+fn weights() -> &'static Mutex<BTreeMap<String, f32>> {
+    static WEIGHTS: OnceLock<Mutex<BTreeMap<String, f32>>> = OnceLock::new();
+    WEIGHTS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// The other half of [`seed_colors`]: loads the hand-picked sizes at start and
+/// re-seeds them whenever the panel saves a change, so the next dial the user
+/// opens already reflects the resize without a restart.
+pub fn seed_weights(list: &[crate::settings::WindowWeight]) {
+    let mut held = weights()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    held.clear();
+    for w in list {
+        held.insert(w.window.clone(), w.weight);
+    }
+}
+
+/// The size a window's sector claims, or `None` when the user left it at the
+/// even default - `None` is what the dial builder understands as "1.0", so the
+/// default path does no extra work.
+fn weight_for(fingerprint: &str) -> Option<f32> {
+    weights()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(fingerprint).copied())
+}
+
+/// The rarity-colour scheme the user picked at the panel. Cached once at start
+/// and every time a draft applies, so the live dial reads the current preset
+/// without dragging the whole [`Settings`] table into its render hot path.
+fn colour_scheme() -> &'static AtomicU32 {
+    static SCHEME: AtomicU32 = AtomicU32::new(0);
+    &SCHEME
+}
+pub fn seed_colour_scheme(scheme: u32) {
+    colour_scheme().store(scheme, Ordering::Relaxed);
+}
+
 /// The label a window carries, if the user wrote one.
 fn tag_for(fingerprint: &str) -> Option<String> {
     tags()
@@ -413,7 +484,14 @@ fn sector_mark(tag: Option<&str>, letter: &str) -> String {
 }
 
 /// The identity a pin is remembered by.
-pub(crate) fn fingerprint(info: &WindowInfo) -> String {
+///
+/// It is the executable, the window class and the first word of the title. The
+/// first word is what tells two windows of one program apart - and also what
+/// used to hand a browser a new identity every time the page renamed the tab.
+/// [`fingerprint`] pins the first answer a live window gave, so the rest of the
+/// program can keep using the title word without the window moving underneath
+/// it.
+fn mark_of(info: &WindowInfo) -> String {
     let first_word = info
         .title
         .split_whitespace()
@@ -421,6 +499,39 @@ pub(crate) fn fingerprint(info: &WindowInfo) -> String {
         .unwrap_or_default()
         .to_lowercase();
     format!("{}|{}|{}", info.exe_path, info.class, first_word)
+}
+
+// The mark a live window was first seen with.
+//
+// A window's title is not part of the window the user made a decision about: a
+// browser rewrites it on every page, and a seat or a label keyed on it was lost
+// the moment the page changed. The handle and the process instance behind it do
+// not change while the window lives, so the first fingerprint is the one the
+// window keeps, and its seat, label and favourite stay where the user put them.
+// The title on the sector still follows the page - only the identity does not.
+//
+// A handle can be reused once its window is gone, so a remembered mark is only
+// trusted while the handle still names the same process instance, executable
+// and window class.
+thread_local! {
+    static MARKS: RefCell<BTreeMap<(isize, u32, u64), String>> =
+        const { RefCell::new(BTreeMap::new()) };
+}
+
+pub(crate) fn fingerprint(info: &WindowInfo) -> String {
+    let key = (info.hwnd, info.pid, info.process_start);
+    let prefix = format!("{}|{}|", info.exe_path, info.class);
+    MARKS.with(|cell| {
+        let mut held = cell.borrow_mut();
+        if let Some(mark) = held.get(&key) {
+            if mark.starts_with(&prefix) {
+                return mark.clone();
+            }
+        }
+        let mark = mark_of(info);
+        held.insert(key, mark.clone());
+        mark
+    })
 }
 
 /// The whole mutable state, behind one lock. The hook callback and both window
@@ -520,6 +631,9 @@ pub fn startup(settings: &Settings, app: HWND) {
     seed_favorites(&settings.favorites);
     seed_seats(&settings.seat_order, &settings.bound, &settings.parked);
     seed_tags(&settings.tags);
+    seed_colors(&settings.colors);
+    seed_weights(&settings.weights);
+    seed_colour_scheme(settings.colour_scheme);
     seed_excluded(&settings.excluded);
     seed_off_dial(&settings.off_dial);
     seed_seat_windows(&settings.seat_hwnds);
@@ -1125,6 +1239,13 @@ unsafe extern "system" fn disc_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                     // The page may be holding the mouse for a sector drag; the
                     // dial has just taken the desktop, so the page must let go.
                     crate::settings_ui::wheel_opened();
+                    // A layered window keeps the pixels of its last showing: a
+                    // theme (or size, or accent) changed since the dial was last
+                    // open would come back dressed in the old look until the
+                    // first hover happened to repaint it. `frame` only paints
+                    // when something moves, so the first frame is composed here,
+                    // before anything is on screen.
+                    paint_disc();
                     frame();
                     let _ = SetTimer(Some(hwnd), WHEEL_TIMER, 16, None);
                 } else {
@@ -1454,18 +1575,78 @@ pub fn snapshot_of(
     // sector on every opening and undid the remembered order; `current` below
     // still marks the window in front without moving anyone.
     let marks: Vec<String> = list.iter().map(fingerprint).collect();
-    // The pin feature is cut: every sector comes from the remembered order, so
-    // the same window is in the same place every time the dial opens. The three
-    // `None`s keep the core's pin geometry compiling for the day it is revived.
+    // One colour per seat, with duplicates resolved across the whole dial. A
+    // hand-picked colour overrides the auto one. The user also picks a scheme:
+    // 0 = auto palette + dedup, 1 = Hawkeye red/gold/violet/blue/green, 2 =
+    // Classic cobalt/teal/violet/orange/rose. A scheme is a preset, not auto:
+    // it hands colours in fixed order to the windows at the front of the dial
+    // (favourite rank 0 first, then rank 1, then the rest), so the user decides
+    // which ladder their most-used window lives on.
+    let (scheme_cols, scheme_weights) = match settings.colour_scheme {
+        1 => (
+            shaiwin_core::theme::SCHEME_HAWKEYE_COLOURS.as_slice(),
+            shaiwin_core::theme::SCHEME_HAWKEYE_WEIGHTS.as_slice(),
+        ),
+        2 => (
+            shaiwin_core::theme::SCHEME_CLASSIC_COLOURS.as_slice(),
+            shaiwin_core::theme::SCHEME_CLASSIC_WEIGHTS.as_slice(),
+        ),
+        _ => (&[][..] as &[Rgb], &[][..] as &[f32]),
+    };
+    let auto_accents: Vec<Rgb> = if settings.colour_scheme == 0 {
+        // Scheme 0 is the quiet default: one grey for every window, so the
+        // only colour on the dial is a colour the user picked by hand.
+        vec![DEFAULT_SECTOR_COLOUR; marks.len()]
+    } else {
+        marks
+            .iter()
+            .enumerate()
+            .map(|(i, _)| scheme_cols[i % scheme_cols.len()])
+            .collect()
+    };
+    // Weights mirror the colours only when a scheme is chosen: with scheme 0
+    // every slice starts even and only hand-picked sizes move them apart. With
+    // a scheme, the colours and sizes descend together so rank 0 is both the
+    // loudest colour and the widest slice.
+    let scheme_weights_opt: Vec<Option<f32>> = if settings.colour_scheme == 0 {
+        vec![None; marks.len()]
+    } else {
+        marks
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                let w = scheme_weights[i % scheme_weights.len()];
+                if (w - 1.0).abs() > 0.01 {
+                    Some(w)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
     let entries: Vec<dial::Entry> = marks
         .iter()
         .enumerate()
-        .map(|(id, mark)| dial::Entry {
-            id,
-            pinned_at: None,
-            pinned_ring: None,
-            pinned_weight: None,
-            favourite_at: settings.favorite_rank(mark),
+        .map(|(id, mark)| {
+            // A hand-picked weight trumps the scheme suggestion; everything else
+            // falls back to whatever the scheme handed the slot, which is `None`
+            // when scheme is 0 so all sectors start even.
+            let pin_w = if let Some(w) = settings.custom_weight_for(mark) {
+                if (w - 1.0).abs() > 0.01 {
+                    Some(w)
+                } else {
+                    None
+                }
+            } else {
+                scheme_weights_opt[id]
+            };
+            dial::Entry {
+                id,
+                pinned_at: None,
+                pinned_ring: None,
+                pinned_weight: pin_w,
+                favourite_at: settings.favorite_rank(mark),
+            }
         })
         .collect();
     let plan = Dial::build(&entries);
@@ -1484,16 +1665,25 @@ pub fn snapshot_of(
             .filter(|name| !name.is_empty())
             .map(str::to_string)
             .unwrap_or(written);
+        // A hand-picked colour must arrive as it was chosen: dial_accent tints
+        // everything to match the theme's paper/neon/glass, which is fine for
+        // the palette defaults but a lie when the user picked something precise.
+        let custom_base = settings.colour_for(&marks[id]);
+        let base = custom_base.unwrap_or(auto_accents[id]);
+        // The quiet default arrives as it is too: tinting the grey towards a
+        // theme's family would put colour back on a dial the user asked to keep
+        // quiet, and it would drift apart across themes for no reason.
+        let tinted = if custom_base.is_some() || settings.colour_scheme == 0 {
+            base
+        } else {
+            dial_accent(base, settings.wheel_theme, settings.wheel_accent)
+        };
         seats.push(PreviewSeat {
             ring: slot.ring,
             bearing: slot.bearing,
             span: slot.span,
-            base_accent: accent_for(&info.exe),
-            accent: dial_accent(
-                accent_for(&info.exe),
-                settings.wheel_theme,
-                settings.wheel_accent,
-            ),
+            base_accent: base,
+            accent: tinted,
             glyph: sector_mark(tag, &crate::i18n::wheel_glyph(&app)),
             head,
             fingerprint: marks[id].clone(),
@@ -1889,15 +2079,71 @@ fn build() {
         );
     }
     let marks: Vec<String> = list.iter().map(fingerprint).collect();
+    // The live dial mirrors the settings page exactly: a user-chosen scheme hands
+    // colours and sizes in fixed order, or scheme 0 falls back to the auto palette
+    // with no scheme-driven size changes.
+    let scheme = colour_scheme().load(Ordering::Relaxed);
+    let (scheme_cols, scheme_weights) = match scheme {
+        1 => (
+            shaiwin_core::theme::SCHEME_HAWKEYE_COLOURS.as_slice(),
+            shaiwin_core::theme::SCHEME_HAWKEYE_WEIGHTS.as_slice(),
+        ),
+        2 => (
+            shaiwin_core::theme::SCHEME_CLASSIC_COLOURS.as_slice(),
+            shaiwin_core::theme::SCHEME_CLASSIC_WEIGHTS.as_slice(),
+        ),
+        _ => (&[][..] as &[Rgb], &[][..] as &[f32]),
+    };
+    let auto_accents: Vec<Rgb> = if scheme == 0 {
+        // Scheme 0 is the quiet default: one grey for every window, so the
+        // only colour on the dial is a colour the user picked by hand.
+        vec![DEFAULT_SECTOR_COLOUR; marks.len()]
+    } else {
+        marks
+            .iter()
+            .enumerate()
+            .map(|(i, _)| scheme_cols[i % scheme_cols.len()])
+            .collect()
+    };
+    let scheme_weights_opt: Vec<Option<f32>> = if scheme == 0 {
+        vec![None; marks.len()]
+    } else {
+        marks
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                let w = scheme_weights[i % scheme_weights.len()];
+                if (w - 1.0).abs() > 0.01 {
+                    Some(w)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
     let entries: Vec<dial::Entry> = marks
         .iter()
         .enumerate()
-        .map(|(id, mark)| dial::Entry {
-            id,
-            pinned_at: None,
-            pinned_ring: None,
-            pinned_weight: None,
-            favourite_at: favorite_rank(mark),
+        .map(|(id, mark)| {
+            // A hand-picked weight trumps the scheme suggestion. Only hand-picked
+            // weights and scheme-driven weights differ from `None`, which the dial
+            // builder understands as "1.0 even".
+            let pin_w = if let Some(w) = weight_for(mark) {
+                if (w - 1.0).abs() > 0.01 {
+                    Some(w)
+                } else {
+                    None
+                }
+            } else {
+                scheme_weights_opt[id]
+            };
+            dial::Entry {
+                id,
+                pinned_at: None,
+                pinned_ring: None,
+                pinned_weight: pin_w,
+                favourite_at: favorite_rank(mark),
+            }
         })
         .collect();
     let plan = Dial::build(&entries);
@@ -1913,9 +2159,19 @@ fn build() {
             .filter(|name| !name.is_empty())
             .map(str::to_string)
             .unwrap_or(written);
+        let custom_base = color_for(&marks[id]);
+        let base = custom_base.unwrap_or(auto_accents[id]);
+        // The quiet default arrives as it is too: tinting the grey towards a
+        // theme's family would put colour back on a dial the user asked to keep
+        // quiet, and it would drift apart across themes for no reason.
+        let tinted = if custom_base.is_some() || scheme == 0 {
+            base
+        } else {
+            dial_accent(base, theme, accent)
+        };
         seats.push(Seat {
             id,
-            accent: dial_accent(accent_for(&info.exe), theme, accent),
+            accent: tinted,
             ring: slot.ring,
             pos: slot.pos,
             bearing: slot.bearing,
@@ -3521,5 +3777,51 @@ mod tests {
         let work = shaiwin_platform_win::Rect::from_xywh(0, 0, 1920, 1040);
         assert_eq!(placed_frame(Some((0, 0)), false, work), None);
         assert_eq!(placed_frame(None, false, work), None);
+    }
+
+    /// A browser rewrites its title on every page. The window the user seated
+    /// and labelled did not change, so its mark must not either.
+    #[test]
+    fn retitling_a_window_does_not_change_its_mark() {
+        let mut info = win(9101);
+        let before = super::fingerprint(&info);
+        info.title = "a different page - browser".to_string();
+        assert_eq!(super::fingerprint(&info), before);
+        // The title the sector draws is free to follow the page; only the
+        // identity stays behind.
+        assert_ne!(info.title, "window 9101");
+    }
+
+    /// The seat comes from the remembered order, and that order is keyed by the
+    /// mark. A retitled window used to miss its own entry and fall off the dial.
+    #[test]
+    fn a_retitled_window_keeps_the_sector_it_was_seated_in() {
+        let mut info = win(9102);
+        let mut settings = crate::settings::Settings::default();
+        settings.seat_order = vec![super::fingerprint(&info)];
+        info.title = "another page - browser".to_string();
+        let seated = super::seat_list(
+            vec![info.clone()],
+            8,
+            0,
+            &[],
+            &settings.seat_order,
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(seated.len(), 1);
+        assert_eq!(seated[0].hwnd, info.hwnd);
+    }
+
+    /// Handles outlive their windows. A mark is only trusted while the handle
+    /// still names the same process instance, executable and class.
+    #[test]
+    fn a_reused_handle_does_not_inherit_the_old_window_mark() {
+        let mut info = win(9103);
+        let old = super::fingerprint(&info);
+        info.exe_path = r"C:\test\other.exe".to_string();
+        info.pid = 9104;
+        assert_ne!(super::fingerprint(&info), old);
     }
 }

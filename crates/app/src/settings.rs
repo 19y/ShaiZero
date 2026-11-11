@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use shaiwin_core::gesture::{Button, Mods, Trigger, TriggerInput};
+use shaiwin_core::theme::Rgb;
 
 pub const APP_DIR: &str = "ShaiZero";
 /// The folders this app wrote under earlier names, newest first. One of them
@@ -41,9 +42,10 @@ pub const SECTOR_WEIGHT_MAX: f32 = 3.0;
 /// `shaiwin_core::gesture` start from, restated here rather than imported: this
 /// crate's job is to turn a text file into a struct without leaning on the
 /// geometry, and a default that outlives a refactor of the ruler is the wrong
-/// kind of coupling. A radius outside the core's 110..=220 is clamped *there*,
-/// where it is used, so a hand-edited `wheel_radius=900` cannot make a dial
-/// larger than the screen - it is simply a request the ruler overrules.
+/// kind of coupling. A radius outside the core's range is clamped *there*, where
+/// it is used, and the live dial additionally scales down to fit the work area
+/// of the monitor it opens on, so a hand-edited `wheel_radius=900` cannot make
+/// a dial larger than the screen - it is simply a request the ruler overrules.
 pub const WHEEL_RADIUS_DEFAULT: f32 = 150.0;
 pub const WHEEL_DEAD_DEFAULT: f32 = 0.42;
 pub const TRIGGER_THRESHOLD_DEFAULT: i32 = 8;
@@ -79,8 +81,10 @@ pub const WHEEL_LIMIT_MAX: u32 = 24;
 pub const DIAL_ORDER_DEFAULT: u32 = 0;
 pub const DIAL_ORDER_MAX: u32 = 1;
 /// What the slider will not go past, so a typo in the file has an upper bound to
-/// be clamped to rather than a number nobody meant.
-pub const WHEEL_RADIUS_MAX: f32 = 400.0;
+/// be clamped to rather than a number nobody meant. This matches the core's own
+/// ceiling; the dial scales to fit the screen at open time, so a large number
+/// here means "as large as this monitor allows", never a wheel that does not fit.
+pub const WHEEL_RADIUS_MAX: f32 = 720.0;
 /// How many times a refused write is tried again, and how long between tries.
 /// The file is small and the reason for a refusal is a third party holding it
 /// for milliseconds, so a short wait is worth it; a long one is not worth having
@@ -231,6 +235,10 @@ pub struct Settings {
     /// plate, seams, strokes, shadows - is not touched by it.
     pub wheel_accent: u32,
     pub wheel_seam: f32,
+    /// The chosen rarity-colour preset. 0 = off (auto palette), 1 = Hawkeye
+    /// red/gold/violet/blue/green, 2 = Classic cobalt/teal/violet/orange/rose.
+    /// Scheme also gives the top favourite windows a wider slice automatically.
+    pub colour_scheme: u32,
     pub wheel_open_ms: u32,
     /// How many places of the remembered order the dial seats by itself. The
     /// rest stay in the management list until the user puts one there by hand -
@@ -310,6 +318,14 @@ pub struct Settings {
     /// file is written in list order and a HashMap would shuffle the tags on every
     /// save; lookups are over a dozen entries at most.
     pub tags: Vec<Label>,
+    /// The sector colours the user picked by hand. A window with an entry here
+    /// ignores the palette the dial assigns automatically, which is how a slice
+    /// that still looks like its neighbour gets a distinct colour on purpose.
+    pub colors: Vec<Colour>,
+    /// How much of its ring each sector claims, when the user resized it by hand.
+    /// `1.0` is the even share the dial starts with; an entry here widens or
+    /// narrows one slice without changing how its neighbours remember their own.
+    pub weights: Vec<WindowWeight>,
     /// The language the interface is drawn in: `auto` follows the system, and
     /// anything else is the name of a pack in the languages folder. Kept as text
     /// rather than an enum because the folder decides what exists.
@@ -345,6 +361,24 @@ pub struct Pin {
 pub struct Label {
     pub window: String,
     pub tag: String,
+}
+
+/// One window's hand-picked sector colour: the same fingerprint a label uses and
+/// the RGB the user chose. Kept apart from [`Settings::tags`] so naming a window
+/// and colouring it are independent decisions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Colour {
+    pub window: String,
+    pub rgb: Rgb,
+}
+
+/// One window's hand-picked sector size: the same fingerprint a colour uses and
+/// the weight it claims on its ring. Kept apart from [`Settings::colors`] so a
+/// window can be recoloured without being resized, and vice versa.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowWeight {
+    pub window: String,
+    pub weight: f32,
 }
 
 /// A tag the sector can actually carry. Tabs and line breaks would break the
@@ -401,6 +435,7 @@ pub struct Draft {
     pub wheel_theme: u32,
     pub wheel_accent: u32,
     pub wheel_seam: f32,
+    pub colour_scheme: u32,
     pub wheel_open_ms: u32,
     /// The dial's window limit and the order the windows arrive in.
     pub wheel_limit: u32,
@@ -437,6 +472,7 @@ impl Default for Settings {
             wheel_theme: WHEEL_THEME_DEFAULT,
             wheel_accent: WHEEL_ACCENT_DEFAULT,
             wheel_seam: WHEEL_SEAM_DEFAULT,
+            colour_scheme: 0,
             wheel_open_ms: WHEEL_OPEN_MS_DEFAULT,
             wheel_limit: WHEEL_LIMIT_DEFAULT,
             dial_order: DIAL_ORDER_DEFAULT,
@@ -449,6 +485,8 @@ impl Default for Settings {
             off_dial: Vec::new(),
             seat_hwnds: Vec::new(),
             tags: Vec::new(),
+            colors: Vec::new(),
+            weights: Vec::new(),
             lang: crate::i18n::AUTO.to_string(),
             panel_w: 0.0,
             panel_h: 0.0,
@@ -471,6 +509,7 @@ impl Default for Draft {
             wheel_theme: s.wheel_theme,
             wheel_accent: s.wheel_accent,
             wheel_seam: s.wheel_seam,
+            colour_scheme: s.colour_scheme,
             wheel_open_ms: s.wheel_open_ms,
             wheel_limit: s.wheel_limit,
             dial_order: s.dial_order,
@@ -587,9 +626,9 @@ impl Settings {
              lang={}\nexcluded={}\n\
              wheel={}\ntrigger_mods={}\ntrigger_button={}\ntrigger_key={}\n\
              wheel_radius={:.1}\nwheel_dead={:.2}\ndrag_threshold={}\n\
-             wheel_palette={}\nwheel_style={}\nwheel_theme={}\nwheel_accent={}\nwheel_seam={:.1}\nwheel_open_ms={}\n\
+             wheel_palette={}\nwheel_style={}\nwheel_theme={}\nwheel_accent={}\nwheel_seam={:.1}\ncolour_scheme={}\nwheel_open_ms={}\n\
              wheel_limit={}\ndial_order={}\nactivate_pos={}\n\
-             pinned_slots={}\nfavorite_slots={}\noff_dial={}\nwindow_tags={}\n\
+             pinned_slots={}\nfavorite_slots={}\noff_dial={}\nwindow_tags={}\nwindow_colors={}\nwindow_weights={}\n\
              seat_order={}\nbound_seats={}\nparked_seats={}\nseat_hwnds={}\n\
              panel_w={:.0}\npanel_h={:.0}\n",
             u8::from(self.reduced_motion),
@@ -611,6 +650,7 @@ impl Settings {
             self.wheel_theme,
             self.wheel_accent,
             self.wheel_seam,
+            self.colour_scheme,
             self.wheel_open_ms,
             self.wheel_limit,
             self.dial_order,
@@ -619,6 +659,8 @@ impl Settings {
             format_favorites(&self.favorites),
             format_handles(&self.off_dial),
             format_labels(&self.tags),
+            format_colors(&self.colors),
+            format_weights(&self.weights),
             format_favorites(&self.seat_order),
             format_favorites(&self.bound),
             format_favorites(&self.parked),
@@ -641,6 +683,9 @@ impl Settings {
         self.wheel_theme = self.wheel_theme.min(WHEEL_THEME_MAX);
         self.wheel_accent = self.wheel_accent.min(WHEEL_ACCENT_MAX);
         self.wheel_seam = clamp_seam(self.wheel_seam);
+        self.colour_scheme = self
+            .colour_scheme
+            .min(shaiwin_core::theme::SCHEME_MAX as u32);
         self.wheel_open_ms = self.wheel_open_ms.min(WHEEL_OPEN_MS_MAX);
         self.wheel_limit = self
             .wheel_limit
@@ -691,6 +736,13 @@ impl Settings {
         self.tags.retain(|label| !label.tag.is_empty());
         dedupe_by(&mut self.pinned_slots, |pin| pin.window.clone());
         dedupe_by(&mut self.tags, |label| label.window.clone());
+        dedupe_by(&mut self.colors, |colour| colour.window.clone());
+        dedupe_by(&mut self.weights, |w| w.window.clone());
+        for w in &mut self.weights {
+            w.weight = w.weight.clamp(SECTOR_WEIGHT_MIN, SECTOR_WEIGHT_MAX);
+        }
+        self.weights
+            .retain(|w| (w.weight - SECTOR_WEIGHT_DEFAULT).abs() > 0.01);
         dedupe(&mut self.favorites);
         dedupe(&mut self.seat_order);
         dedupe(&mut self.bound);
@@ -738,6 +790,25 @@ impl Settings {
     /// The place a window holds in the dial's order, if it has one.
     pub fn seat_index(&self, mark: &str) -> Option<usize> {
         self.seat_order.iter().position(|seat| seat == mark)
+    }
+
+    /// The other half of a drag between two sectors that share a fingerprint:
+    /// two documents of one program are seated by handle, so their visible order
+    /// is the order of [`Settings::seat_hwnds`]. Swapping the marks would be a
+    /// no-op for them; swapping the handles is what moves the slices.
+    pub fn swap_seat_windows(&mut self, a: isize, b: isize) -> bool {
+        if a == b {
+            return false;
+        }
+        let ia = self.seat_hwnds.iter().position(|hwnd| *hwnd == a);
+        let ib = self.seat_hwnds.iter().position(|hwnd| *hwnd == b);
+        match (ia, ib) {
+            (Some(ia), Some(ib)) => {
+                self.seat_hwnds.swap(ia, ib);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Whether the user took this window off the dial. It keeps its place in
@@ -934,6 +1005,102 @@ impl Settings {
         }
     }
 
+    /// The colour the user picked for this window, if any. `None` means "let the
+    /// dial assign one", which is what most windows do.
+    pub fn colour_for(&self, fingerprint: &str) -> Option<Rgb> {
+        self.colors
+            .iter()
+            .find(|c| c.window == fingerprint)
+            .map(|c| c.rgb)
+    }
+
+    /// Writes, replaces or - with `None` - removes a hand-picked sector colour.
+    /// Answers whether anything changed, so the caller does not write the file
+    /// or rebuild the dial after a no-op.
+    pub fn set_colour(&mut self, fingerprint: &str, colour: Option<Rgb>) -> bool {
+        let at = self.colors.iter().position(|c| c.window == fingerprint);
+        match (at, colour) {
+            (Some(at), None) => {
+                self.colors.remove(at);
+                true
+            }
+            (Some(at), Some(rgb)) => {
+                if self.colors[at].rgb == rgb {
+                    return false;
+                }
+                self.colors[at].rgb = rgb;
+                true
+            }
+            (None, Some(rgb)) => {
+                self.colors.push(Colour {
+                    window: fingerprint.to_string(),
+                    rgb,
+                });
+                true
+            }
+            (None, None) => false,
+        }
+    }
+
+    /// How much of its ring this window's sector claims. `1.0` is the even share;
+    /// a window the user never resized has no entry and answers with the default,
+    /// so callers can treat the answer as the size directly.
+    pub fn weight_for(&self, fingerprint: &str) -> f32 {
+        self.weights
+            .iter()
+            .find(|w| w.window == fingerprint)
+            .map(|w| w.weight)
+            .unwrap_or(SECTOR_WEIGHT_DEFAULT)
+    }
+
+    /// The hand-picked weight, if any. Unlike [`Settings::weight_for`] which
+    /// always answers with a number (1.0 being the default), this returns `None`
+    /// when the user never changed anything so callers can tell "auto" apart
+    /// from "pinned".
+    pub fn custom_weight_for(&self, fingerprint: &str) -> Option<f32> {
+        self.weights
+            .iter()
+            .find(|w| w.window == fingerprint)
+            .map(|w| w.weight)
+    }
+
+    /// Writes, replaces or - with `None` - removes a hand-picked sector size. A
+    /// value that clamps back to the default is removed rather than stored, so the
+    /// file never carries a size that does nothing. Answers whether anything
+    /// changed, so the caller skips the save and the repaint after a no-op.
+    pub fn set_weight(&mut self, fingerprint: &str, weight: Option<f32>) -> bool {
+        let at = self.weights.iter().position(|w| w.window == fingerprint);
+        let normalized = |w: f32| {
+            let c = w.clamp(SECTOR_WEIGHT_MIN, SECTOR_WEIGHT_MAX);
+            if (c - SECTOR_WEIGHT_DEFAULT).abs() > 0.01 {
+                Some(c)
+            } else {
+                None
+            }
+        };
+        match (at, weight.and_then(normalized)) {
+            (Some(at), None) => {
+                self.weights.remove(at);
+                true
+            }
+            (Some(at), Some(w)) => {
+                if (self.weights[at].weight - w).abs() < 0.01 {
+                    return false;
+                }
+                self.weights[at].weight = w;
+                true
+            }
+            (None, Some(w)) => {
+                self.weights.push(WindowWeight {
+                    window: fingerprint.to_string(),
+                    weight: w,
+                });
+                true
+            }
+            (None, None) => false,
+        }
+    }
+
     pub fn fav_label(&self) -> String {
         hotkey_label(self.fav_mods, self.fav_vk)
     }
@@ -1013,8 +1180,13 @@ fn apply_line(s: &mut Settings, key: &str, value: &str) -> bool {
         }
         "wheel_style" => s.wheel_style = parse_index(value, WHEEL_STYLE_MAX, WHEEL_STYLE_DEFAULT),
         "wheel_theme" => s.wheel_theme = parse_index(value, WHEEL_THEME_MAX, WHEEL_THEME_DEFAULT),
-        "wheel_accent" => {
-            s.wheel_accent = parse_index(value, WHEEL_ACCENT_MAX, WHEEL_ACCENT_DEFAULT)
+        "wheel_accent" => s.wheel_accent = parse_index(value, WHEEL_ACCENT_MAX, WHEEL_ACCENT_DEFAULT),
+        "colour_scheme" => {
+            s.colour_scheme = parse_index(
+                value,
+                shaiwin_core::theme::SCHEME_MAX as u32,
+                0,
+            );
         }
         "wheel_seam" => s.wheel_seam = parse_wheel_seam(value),
         "wheel_open_ms" => {
@@ -1048,6 +1220,8 @@ fn apply_line(s: &mut Settings, key: &str, value: &str) -> bool {
         "off_dial" => s.off_dial = parse_handles(value),
         "seat_hwnds" => s.seat_hwnds = parse_handles(value),
         "window_tags" => s.tags = parse_labels(value),
+        "window_colors" => s.colors = parse_colors(value),
+        "window_weights" => s.weights = parse_weights(value),
         "excluded" => {
             s.excluded = value
                 .split(',')
@@ -1459,6 +1633,82 @@ pub fn parse_labels(value: &str) -> Vec<Label> {
         tags.push(Label { window, tag });
     }
     tags
+}
+
+/// The hand-picked sector colours, on one line: `fingerprint=RRGGBB` pairs
+/// separated by commas. The colour is six hex digits so the file can be read and
+/// edited without a colour picker.
+pub fn format_colors(colors: &[Colour]) -> String {
+    colors
+        .iter()
+        .map(|colour| {
+            format!(
+                "{}={:02X}{:02X}{:02X}",
+                escape_field(&colour.window),
+                colour.rgb.0,
+                colour.rgb.1,
+                colour.rgb.2
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The other half of [`format_colors`]. A pair without `=`, a window with no
+/// name, or a colour that is not six hex digits is dropped: a colour invented for
+/// a window is worse than one that is missing.
+pub fn parse_colors(value: &str) -> Vec<Colour> {
+    let mut colors = Vec::new();
+    for pair in split_fields(value, ',') {
+        let Some((window, rgb)) = split_once_field(&pair, '=') else {
+            continue;
+        };
+        let window = unescape_field(window);
+        let rgb = rgb.trim();
+        if window.is_empty() || rgb.len() != 6 {
+            continue;
+        }
+        let Ok(packed) = u32::from_str_radix(rgb, 16) else {
+            continue;
+        };
+        colors.push(Colour {
+            window,
+            rgb: Rgb((packed >> 16) as u8, (packed >> 8) as u8, packed as u8),
+        });
+    }
+    colors
+}
+
+/// The hand-picked sector sizes, on one line: `fingerprint=weight` pairs
+/// separated by commas. The weight is a plain float so a hand edit can widen a
+/// slice without opening the panel.
+pub fn format_weights(weights: &[WindowWeight]) -> String {
+    weights
+        .iter()
+        .map(|w| format!("{}={}", escape_field(&w.window), w.weight))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The other half of [`format_weights`]. A pair without `=`, a window with no
+/// name, or a weight that is not a finite number is dropped: a guessed size is
+/// worse than the default the dial already gives the slice.
+pub fn parse_weights(value: &str) -> Vec<WindowWeight> {
+    let mut weights = Vec::new();
+    for pair in split_fields(value, ',') {
+        let Some((window, raw)) = split_once_field(&pair, '=') else {
+            continue;
+        };
+        let window = unescape_field(window);
+        let Ok(weight) = raw.trim().parse::<f32>() else {
+            continue;
+        };
+        if window.is_empty() || !weight.is_finite() {
+            continue;
+        }
+        weights.push(WindowWeight { window, weight });
+    }
+    weights
 }
 
 /// Split on the commas that are not inside an escaped pair. Written as a walk
@@ -1973,7 +2223,7 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         };
         let text = s.render();
         let (back, recognised) = parse(&text);
-        assert_eq!(recognised, 33, "every line this app writes is one it reads");
+        assert_eq!(recognised, 36, "every line this app writes is one it reads");
         assert_eq!(back.activate_pos, 1, "and the position survives the file");
         assert_eq!(
             back.favorites, s.favorites,
@@ -1986,6 +2236,7 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         assert_eq!(back.wheel_limit, s.wheel_limit);
         assert_eq!(back.dial_order, s.dial_order);
         assert_eq!(back.tags, s.tags);
+        assert_eq!(back.weights, s.weights);
         assert_eq!(back.excluded, s.excluded);
         assert_eq!(back.off_dial, s.off_dial, "handles, one per window");
         assert_eq!(
@@ -2006,6 +2257,27 @@ off_dial=C:\Windows\notepad.exe|Notepad|Untitled,4660
         // The file a person finds is the file the next start reads back, byte
         // for byte.
         assert_eq!(back.render(), text);
+    }
+
+    #[test]
+    fn hand_picked_sector_weights_round_trip_and_default_is_dropped() {
+        let a = r"C:\Windows\notepad.exe|Notepad|Untitled";
+        let b = r"D:\code.exe|Code|main.rs";
+        let mut s = Settings::default();
+        assert!(s.set_weight(a, Some(1.5)));
+        assert!(s.set_weight(b, Some(0.8)));
+        assert_eq!(s.weight_for(a), 1.5);
+        assert_eq!(s.weight_for(b), 0.8);
+        assert_eq!(s.weight_for("missing"), SECTOR_WEIGHT_DEFAULT);
+        let text = s.render();
+        let (back, _) = parse(&text);
+        assert_eq!(back.weight_for(a), 1.5);
+        assert_eq!(back.weight_for(b), 0.8);
+        // A size set back to the default leaves no entry: the file keeps only
+        // sizes that actually change a sector, so a reset is a clean removal.
+        assert!(s.set_weight(a, Some(SECTOR_WEIGHT_DEFAULT)));
+        assert_eq!(s.weight_for(a), SECTOR_WEIGHT_DEFAULT);
+        assert!(s.weights.iter().all(|w| w.window != a));
     }
 
     #[test]

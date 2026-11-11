@@ -26,6 +26,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use shaiwin_core::theme::Rgb;
+
 use crate::i18n::t;
 use crate::settings::{self, Settings};
 use crate::{ico, settings_ui, tray};
@@ -634,6 +636,182 @@ impl App {
         );
     }
 
+    /// The hand-picked sector colour for this window, if the user chose one. The
+    /// panel uses it to decide whether to offer "reset to auto" and to seed the
+    /// picker with the colour already in place rather than the palette default.
+    pub(crate) fn custom_colour(&self, fingerprint: &str) -> Option<Rgb> {
+        self.settings.colour_for(fingerprint)
+    }
+
+    /// Writes, replaces or clears a hand-picked sector colour and makes the dial
+    /// show it at once. The panel's own picture is rebuilt by `refresh_rows`;
+    /// the live dial reads the seeded map the next time it opens.
+    pub(crate) fn set_window_color(&mut self, fingerprint: &str, color: Option<Rgb>) {
+        if !self.settings.set_colour(fingerprint, color) {
+            return;
+        }
+        self.settings.save();
+        crate::wheel::seed_colors(&self.settings.colors);
+        crate::settings_ui::refresh_rows();
+        crate::log!(
+            "colour: window {} {}",
+            if color.is_some() { "coloured" } else { "back to auto" },
+            fingerprint
+        );
+    }
+
+    /// The same write as [`set_window_color`] without the file save: the colour
+    /// card calls this on every step of a drag so the dial shows the colour under
+    /// the finger, and only the accepted colour is written down. A cancelled card
+    /// therefore leaves the file exactly as it found it.
+    pub(crate) fn preview_window_color(&mut self, fingerprint: &str, color: Option<Rgb>) {
+        if !self.settings.set_colour(fingerprint, color) {
+            return;
+        }
+        crate::wheel::seed_colors(&self.settings.colors);
+    }
+
+    /// How much of its ring this window's sector claims, `1.0` being the even
+    /// share. The panel uses it to step the size up or down from where it already
+    /// is, so repeated clicks keep moving rather than snapping back to a guess.
+    pub(crate) fn window_weight(&self, fingerprint: &str) -> f32 {
+        self.settings.weight_for(fingerprint)
+    }
+
+    /// Writes, replaces or clears a hand-picked sector size and makes the dial
+    /// show it at once. Mirrors [`App::set_window_color`]: the panel repaints
+    /// through `refresh_rows`, the live dial re-seeds the size map for its next
+    /// opening.
+    pub(crate) fn set_window_weight(&mut self, fingerprint: &str, weight: Option<f32>) {
+        if !self.settings.set_weight(fingerprint, weight) {
+            return;
+        }
+        self.settings.save();
+        crate::wheel::seed_weights(&self.settings.weights);
+        crate::wheel::seed_colour_scheme(self.settings.colour_scheme);
+        crate::settings_ui::refresh_rows();
+        crate::log!(
+            "size: window {} {}",
+            if weight.is_some() { "resized" } else { "back to even" },
+            fingerprint
+        );
+    }
+
+    /// The anchor drag's answer: it moves a whole rim of sectors at once, so
+    /// every changed size is written through one save instead of one save per
+    /// sector - a drag crossing six seams must not rewrite the settings file
+    /// six hundred times a second.
+    pub(crate) fn set_window_weights(&mut self, updates: &[(String, f32)]) {
+        let mut changed = false;
+        for (fingerprint, weight) in updates {
+            if self.settings.set_weight(fingerprint, Some(*weight)) {
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+        self.settings.save();
+        crate::wheel::seed_weights(&self.settings.weights);
+        crate::wheel::seed_colour_scheme(self.settings.colour_scheme);
+        crate::settings_ui::refresh_weights();
+    }
+
+    /// Exchanges the places of two seats, which is what a drag from one sector to
+    /// another in the preview means. The order list is tried first; two windows
+    /// that share a fingerprint are seated by handle, so their handle order is
+    /// tried second. Either way the two windows must still hold sectors after the
+    /// change - a swap that would push one off the dial is rolled back, because a
+    /// drag is a rearrangement, never a removal.
+    pub(crate) fn swap_seats(
+        &mut self,
+        a: &str,
+        a_hwnd: isize,
+        b: &str,
+        b_hwnd: isize,
+        shown: &[(String, isize)],
+    ) {
+        if a_hwnd == b_hwnd {
+            return;
+        }
+        let moved = if a == b {
+            // Two windows of one program are seated by handle, so their visible
+            // order is the order of `seat_hwnds`; swapping the name would be a
+            // no-op for them.
+            self.settings.swap_seat_windows(a_hwnd, b_hwnd)
+        } else {
+            // The order the picture shows is the only thing the user is talking
+            // about. Rewriting the remembered order from it moves exactly the two
+            // slices that were dragged together, even when one of the two had no
+            // place in the order to begin with.
+            self.rewrite_seat_order(a_hwnd, b_hwnd, shown)
+        };
+        if !moved {
+            crate::log!("seat: drag {a_hwnd:x} → {b_hwnd:x} moved nothing");
+            return;
+        }
+        self.settings.save();
+        crate::wheel::seed_seats(
+            &self.settings.seat_order,
+            &self.settings.bound,
+            &self.settings.parked,
+        );
+        crate::wheel::seed_seat_windows(&self.settings.seat_hwnds);
+        crate::settings_ui::refresh_rows();
+        crate::log!("seat: swapped {a_hwnd:x} and {b_hwnd:x} in the dial's order");
+    }
+
+    /// Rebuilds the remembered order from the seats the picture is showing, with
+    /// the two dragged seats exchanged. Everything the picture does not show keeps
+    /// its relative place behind them, so a drag never forgets a window.
+    fn rewrite_seat_order(
+        &mut self,
+        a_hwnd: isize,
+        b_hwnd: isize,
+        shown: &[(String, isize)],
+    ) -> bool {
+        let at = |hwnd: isize| shown.iter().position(|(_, held)| *held == hwnd);
+        let (Some(ia), Some(ib)) = (at(a_hwnd), at(b_hwnd)) else {
+            return false;
+        };
+        if ia == ib {
+            return false;
+        }
+        let mut order: Vec<String> = shown.iter().map(|(mark, _)| mark.clone()).collect();
+        order.swap(ia, ib);
+        for seat in &self.settings.seat_order {
+            if !order.contains(seat) {
+                order.push(seat.clone());
+            }
+        }
+        // A favourite is seated by its rank, not by its place in `seat_order`, so
+        // a drag that moves one has to carry the rank with it or the builder puts
+        // the sector straight back where it was. Re-ranking the favourites in the
+        // order the picture now shows keeps the membership exactly as it was and
+        // moves only the place.
+        let favourites: Vec<String> = order
+            .iter()
+            .filter(|mark| self.settings.favorites.contains(mark))
+            .cloned()
+            .collect();
+        if !favourites.is_empty() {
+            let mut rest: Vec<String> = self
+                .settings
+                .favorites
+                .iter()
+                .filter(|mark| !favourites.contains(mark))
+                .cloned()
+                .collect();
+            let mut ranked = favourites;
+            ranked.append(&mut rest);
+            if ranked != self.settings.favorites {
+                self.settings.favorites = ranked;
+            }
+        }
+        self.settings.seat_order = order;
+        true
+    }
+
     /// Opens the label editor for one window, sitting under the window it names.
     /// `fingerprint` is what gets written, so the caller has already decided which
     /// window this is about; `hwnd` is only where the popover goes. `fallback` is
@@ -1019,6 +1197,7 @@ impl App {
             wheel_theme,
             wheel_accent,
             wheel_seam,
+            colour_scheme,
             wheel_open_ms,
             wheel_limit,
             dial_order,
@@ -1056,6 +1235,7 @@ impl App {
         self.settings.wheel_theme = wheel_theme;
         self.settings.wheel_accent = wheel_accent;
         self.settings.wheel_seam = wheel_seam;
+        self.settings.colour_scheme = colour_scheme;
         self.settings.wheel_open_ms = wheel_open_ms;
         self.settings.reduced_motion = reduced_motion;
         // Applied here and not at the next start: the tray and the dial read the

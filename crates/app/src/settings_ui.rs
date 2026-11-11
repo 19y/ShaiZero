@@ -53,6 +53,7 @@ use std::time::Instant;
 use shaiwin_platform_win::hook;
 use shaiwin_platform_win::monitor::Monitor;
 use shaiwin_platform_win::window::WindowInfo;
+use shaiwin_core::theme::Rgb;
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 use windows::core::{w, BOOL, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
@@ -73,25 +74,27 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetDoubleClickTime, GetFocus, ReleaseCapture, SetCapture, SetFocus,
-    TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE,
-    VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB,
+    GetAsyncKeyState, GetDoubleClickTime, GetFocus, GetKeyState, ReleaseCapture, SetCapture,
+    SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VIRTUAL_KEY, VK_BACK, VK_CONTROL,
+    VK_DELETE, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DrawIconEx, GetClientRect, GetWindowLongPtrW, GetWindowTextW, IsDialogMessageW,
-    IsWindowVisible, KillTimer, LoadCursorW, MessageBoxW, PostMessageW,
+    AppendMenuW, CallWindowProcW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+    DestroyWindow, DrawIconEx, GetClientRect, GetWindowLongPtrW, GetWindowTextW,
+    IsDialogMessageW, IsWindowVisible, KillTimer, LoadCursorW, MessageBoxW, PostMessageW,
     RegisterClassExW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
     SetWindowTextW, ShowWindow, TrackPopupMenu, BM_CLICK, BN_CLICKED, DI_NORMAL, DLGC_BUTTON,
     DLGC_WANTALLKEYS, DLGC_WANTARROWS, DLGC_WANTCHARS, DM_GETDEFID, GWLP_USERDATA, HICON, HMENU,
     ICON_BIG, ICON_SMALL, IDC_ARROW, MB_ICONWARNING, MB_OK, MF_STRING,
     MINMAXINFO, MSG, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOZORDER, SW_HIDE, SW_SHOWNA, SW_SHOWNORMAL,
-    TPM_RIGHTBUTTON, TPM_RETURNCMD, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
+    DLGC_WANTMESSAGE, TPM_RIGHTBUTTON, TPM_RETURNCMD, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
+    WM_CAPTURECHANGED,
+    WM_CHAR, WM_CLOSE, WM_COMMAND,
     WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_GETDLGCODE, WM_GETMINMAXINFO,
     WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_NCDESTROY, WM_NULL, WM_PAINT, WM_RBUTTONUP, WM_SETFOCUS, WM_SETFONT, WM_SETICON, WM_SIZE, WM_TIMER,
-    WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
+    GWLP_WNDPROC, WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
     WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
     WS_VISIBLE,
 };
@@ -118,6 +121,20 @@ const PANEL_ID: i32 = 102;
 /// caret, selection, clipboard and IME all behave the way the rest of Windows
 /// does; the page only reads its text and filters the list.
 const SEARCH_ID: i32 = 733;
+/// The radius is a real edit control too: ten clicks on `+` to go from 150 to
+/// 250 px is a chore, and the number has always been a number one could type.
+/// The steppers still move it by tens; this is the way to say "300" outright.
+const RADIUS_EDIT_ID: i32 = 734;
+/// Stock `EDIT` messages without friendly wrappers in this binding.
+const EM_SETSEL: u32 = 0x00B1;
+const EM_SCROLLCARET: u32 = 0x00B7;
+const EM_SETLIMITTEXT: u32 = 0x00C5;
+const ES_CENTER: u32 = 0x0001;
+const ES_AUTOHSCROLL: u32 = 0x0080;
+/// `EN_SETFOCUS` / `EN_KILLFOCUS` / `EN_CHANGE`, as sent in `WM_COMMAND`'s
+/// high word.
+const EN_SETFOCUS: u32 = 0x0100;
+const EN_KILLFOCUS: u32 = 0x0200;
 /// The trigger recorder, one field where four modifier cells and two button
 /// cells used to be.
 const MOD_BASE: i32 = 110;
@@ -154,6 +171,13 @@ const DIAL_THEME_GAP: f32 = 6.0;
 /// it back: a press that changed the dial is answered in words, not only by the
 /// list silently reordering itself.
 const DIAL_TOAST_TIMER: usize = 0x52;
+/// The dial page's watch on the desk. While the page is showing, this timer
+/// walks the desktop every couple of seconds and re-reads the list only when a
+/// window has arrived or left: a window that closed under the page must not
+/// keep its row and its sector on screen forever, and a page that repaints
+/// itself for no change is a page that flickers.
+const DIAL_POOL_TIMER: usize = 0x54;
+const DIAL_POOL_MS: u32 = 2000;
 const DIAL_TOAST_MS: u32 = 1600;
 const DIAL_STEP_BASE: i32 = 720;
 /// The six named looks. Each is a whole treatment - plate, fill, rim, glow,
@@ -206,6 +230,14 @@ const WM_SHOW_SECTION: u32 = WM_APP + 7;
 /// being aimed at, and the capture must go back to the desktop so the dial can
 /// hear the release.
 const WM_WHEEL_OPENED: u32 = WM_APP + 8;
+/// Only the sector sizes changed - an anchor drag says this on every mouse
+/// move. The rows are the same rows, so there is no desk to walk: throw away
+/// the still picture and paint it again from the copy the page already holds.
+const WM_WEIGHTS_CHANGED: u32 = WM_APP + 9;
+/// Enter was pressed in the radius field. The edit is subclassed only to hear
+/// that one key; the panel commits the number on its own queue, so a refused
+/// draft cannot be rolled back inside a control that is still drawing itself.
+const WM_RADIUS_COMMIT: u32 = WM_APP + 10;
 
 // --- the panel -----------------------------------------------------------------
 //
@@ -817,6 +849,7 @@ struct State {
     wheel_theme: u32,
     wheel_accent: u32,
     wheel_seam: f32,
+    colour_scheme: u32,
     wheel_open_ms: u32,
     /// The dial's window limit and the order its windows arrive in. Both are
     /// applied at the next open as well as fed to the preview below.
@@ -836,6 +869,14 @@ struct State {
     /// edit control so the caret and the IME work; the page only listens for the
     /// text changing.
     dial_search: HWND,
+    /// The radius value is an edit control, so a size can be typed instead of
+    /// stepped to. The steppers and this field are two views of `wheel_radius`;
+    /// whichever one moved writes the other on the next message.
+    radius_edit: HWND,
+    /// Whether the radius field has the focus, told by its own notifications.
+    /// The frame's edge is drawn from this rather than asking `GetFocus` at
+    /// paint time.
+    radius_focused: bool,
     /// Every window before the filter, and the filter's text, lower-cased. The
     /// list beside the picture is `dial_pool`, which is a view of `pool_all`;
     /// dragging and the × act on the view, so they keep working while a filter is
@@ -891,6 +932,16 @@ struct State {
     /// release point decides a click by its distance from this point, and the
     /// click itself is resolved here rather than under the cursor.
     dial_press: Option<(i32, i32)>,
+    /// A press on a sector that may become a drag. Lives beside `dial_press`
+    /// because a press that grabbed a sector never becomes the rename click.
+    seat_drag: Option<SeatDrag>,
+    /// A press on a seam anchor, being dragged to widen one sector at the cost
+    /// of its neighbour. None when nothing is being resized.
+    anchor_drag: Option<AnchorDrag>,
+    /// The colour card, when it is open. It floats over the page so a colour can
+    /// be picked where the eye already is - on the picture - and every change
+    /// lands on the dial while the finger is still down.
+    colour_panel: Option<ColourPanel>,
     /// A sentence shown in the note band for a moment after a row was taken off
     /// the dial or put back, so the change is said as well as drawn.
     dial_toast: Option<(String, Instant)>,
@@ -917,6 +968,163 @@ struct State {
 struct RowClick {
     at: usize,
     when: Instant,
+}
+
+/// A press on a sector that may still become a drag. The press is remembered
+/// until the pointer travels past the slop; once it has, every sector the
+/// pointer then enters trades places with the one being carried, live.
+struct SeatDrag {
+    from: String,
+    from_hwnd: isize,
+    start: (i32, i32),
+    moved: bool,
+}
+
+/// A press on a seam anchor - the little handle that lets a user widen one
+/// sector by eating into its neighbour. The drag is answered live: every
+/// mouse move rescales the two neighbours and the disc repaints.
+struct AnchorDrag {
+    /// The two seats this seam divides, left then right.
+    left_fp: String,
+    right_fp: String,
+    /// Total weight of the ring the seam belongs to at the drag's start, so a
+    /// span in degrees can be turned back into a weight. Spans are divided per
+    /// ring, so a dial with two rings needs the inner total, not the outer one.
+    total_weight: f32,
+    /// The seam bearing at the moment the drag began, degrees clockwise from
+    /// 12 o'clock in the same frame as `seat.bearing`.
+    start_angle: f32,
+    /// Each neighbour's span at the drag start, so a delta in bearing maps
+    /// straight to a delta in span.
+    start_left_span: f32,
+    start_right_span: f32,
+    /// The picture's centre in page coordinates, remembered at the press.
+    /// A live drag throws the preview away on every move, so the angle cannot
+    /// be measured against a picture that may not exist on the next move.
+    cx: i32,
+    cy: i32,
+}
+
+/// The colour card a sector's "Colour…" item opens: a curated row of swatches
+/// and three sliders, drawn on the page itself so a colour can be judged on the
+/// dial rather than in a dialog. Every step is applied as it is taken; Cancel
+/// puts back what the sector had when the card was opened.
+struct ColourPanel {
+    /// The window being coloured.
+    mark: String,
+    /// What the sector looked like before the card opened - the hand-picked
+    /// colour when there was one, the palette's when there was not.
+    before: Option<Rgb>,
+    /// The colour under the finger right now.
+    rgb: Rgb,
+    /// The click that opened the card; the card sits beside it.
+    at: (i32, i32),
+    /// 0..3 for the hue, saturation and lightness tracks, while one is dragged.
+    drag: Option<usize>,
+}
+
+impl ColourPanel {
+    fn hsl(&self) -> (f32, f32, f32) {
+        rgb_to_hsl(self.rgb)
+    }
+}
+
+/// One curated palette for the card: the colours a dial actually reads well in.
+/// Ordered warm to cool, so the row scans like a spectrum rather than a drawer.
+const COLOUR_PRESETS: [(u8, u8, u8); 24] = [
+    (229, 57, 53),
+    (244, 81, 30),
+    (255, 152, 0),
+    (255, 193, 7),
+    (255, 214, 0),
+    (205, 220, 57),
+    (139, 195, 74),
+    (67, 160, 71),
+    (34, 165, 122),
+    (0, 172, 193),
+    (3, 155, 229),
+    (30, 136, 229),
+    (63, 81, 181),
+    (103, 58, 183),
+    (142, 68, 173),
+    (216, 27, 96),
+    (121, 85, 72),
+    (84, 110, 122),
+    (69, 90, 100),
+    (38, 50, 56),
+    (255, 255, 255),
+    (224, 224, 224),
+    (158, 158, 158),
+    (97, 97, 97),
+];
+
+const COLOUR_CARD_W: f32 = 236.0;
+const COLOUR_CARD_PAD: f32 = 14.0;
+const COLOUR_SWATCH_COLS: usize = 8;
+const COLOUR_SWATCH_GAP: f32 = 5.0;
+const COLOUR_SLIDER_H: f32 = 12.0;
+const COLOUR_SLIDER_GAP: f32 = 16.0;
+
+/// HSL with every component 0..1, which is what the card's tracks move through.
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> Rgb {
+    let h = h.rem_euclid(1.0) * 6.0;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let q = |v: f32| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
+    Rgb(q(r), q(g), q(b))
+}
+
+fn rgb_to_hsl(Rgb(r, g, b): Rgb) -> (f32, f32, f32) {
+    let r = r as f32 / 255.0;
+    let g = g as f32 / 255.0;
+    let b = b as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d < 1e-6 {
+        return (0.0, 0.0, l);
+    }
+    let s = d / (1.0 - (2.0 * l - 1.0).abs()).max(1e-6);
+    let h = if max == r {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } / 6.0;
+    (h.rem_euclid(1.0), s, l)
+}
+
+/// The rectangles the colour card is made of, in device pixels. Paint and hit
+/// test both read this one function so a swatch cannot be drawn where it is not
+/// pressed.
+struct ColourLayout {
+    card: RECT,
+    swatches: Vec<RECT>,
+    sliders: [RECT; 3],
+    cancel: RECT,
+    done: RECT,
+    chip: RECT,
+}
+
+/// What a press on the page landed on while the colour card was open.
+enum ColourHit {
+    Outside,
+    Inside,
+    Swatch(usize),
+    Slider(usize),
+    Cancel,
+    Done,
 }
 
 /// The parts of `client` that lie outside `cell`: four bands, no overlap. The
@@ -960,6 +1168,57 @@ fn outside(client: RECT, cell: RECT) -> [RECT; 4] {
 /// a shaky click. Six logical pixels: the four a mouse is allowed to shake with,
 /// plus the two a hand moving a little before it commits adds.
 const SEAT_DRAG_SLOP: f32 = 6.0;
+
+/// One flat fill, no brush left behind. The colour card draws its swatches and
+/// gradients in dozens of these per frame, so the brush is made and dropped here
+/// rather than cached.
+unsafe fn fill_flat(hdc: HDC, r: RECT, colour: (u8, u8, u8)) {
+    if r.right <= r.left || r.bottom <= r.top {
+        return;
+    }
+    unsafe {
+        let brush = solid(colour);
+        let _ = FillRect(hdc, &r, brush);
+        let _ = DeleteObject(brush.into());
+    }
+}
+
+/// A hairline ring inside `r`: four edges, no pen to clean up.
+unsafe fn ring_flat(hdc: HDC, r: RECT, thickness: i32, colour: (u8, u8, u8)) {
+    if r.right <= r.left || r.bottom <= r.top || thickness <= 0 {
+        return;
+    }
+    let t = thickness;
+    unsafe {
+        fill_flat(hdc, RECT { left: r.left, top: r.top, right: r.right, bottom: r.top + t }, colour);
+        fill_flat(hdc, RECT { left: r.left, top: r.bottom - t, right: r.right, bottom: r.bottom }, colour);
+        fill_flat(hdc, RECT { left: r.left, top: r.top + t, right: r.left + t, bottom: r.bottom - t }, colour);
+        fill_flat(hdc, RECT { left: r.right - t, top: r.top + t, right: r.right, bottom: r.bottom - t }, colour);
+    }
+}
+
+/// A horizontal track that runs through `f` from left to right. Bands rather than
+/// a real gradient: sixty-four of them at this height read as smooth, and each is
+/// one independent fill.
+unsafe fn gradient_flat(hdc: HDC, r: RECT, steps: i32, f: impl Fn(f32) -> Rgb) {
+    if r.right <= r.left || r.bottom <= r.top {
+        return;
+    }
+    let steps = steps.max(2);
+    let width = r.right - r.left;
+    for i in 0..steps {
+        let x0 = r.left + width * i / steps;
+        let x1 = (r.left + width * (i + 1) / steps).max(x0 + 1);
+        let Rgb(rr, gg, bb) = f((i as f32 + 0.5) / steps as f32);
+        unsafe {
+            fill_flat(
+                hdc,
+                RECT { left: x0, top: r.top, right: x1, bottom: r.bottom },
+                (rr, gg, bb),
+            );
+        }
+    }
+}
 
 /// The preview card composed off screen: one memory DC holds the paper and the
 /// frame, and the page receives it in a single `BitBlt`. Two passes onto the
@@ -1249,6 +1508,10 @@ struct Layout {
     dial_cells: [RECT; DIAL_CELLS],
     dial_steps: [RECT; 6],
     dial_values: [RECT; 3],
+    /// The radius edit inside its frame: `dial_values[0]` with the hairline
+    /// border's inset taken off every edge, so the frame the page paints stays
+    /// visible around the child instead of being covered by it.
+    dial_radius_input: RECT,
     /// The scrolling list of every window, beside the picture. Rows are counted
     /// from this rectangle, so the height the picture leaves decides how many are
     /// on paper; the rest are a wheel-turn away.
@@ -1287,6 +1550,26 @@ fn band(x0: f32, x1: f32, y: f32, h: f32) -> RECT {
         top: y.round() as i32,
         right: x1.round() as i32,
         bottom: (y + h).round() as i32,
+    }
+}
+
+/// The first run of digits in what was typed. "300 px", " 300" and "300.5" all
+/// mean 300; a field with no number in it at all is not a size. Suffixes and
+/// stray letters are tolerated because the field shows its unit, and a person
+/// editing "150 px" should not have to delete it first.
+fn parse_radius(text: &str) -> Option<f32> {
+    let mut run = String::new();
+    for c in text.chars() {
+        if c.is_ascii_digit() {
+            run.push(c);
+        } else if !run.is_empty() {
+            break;
+        }
+    }
+    if run.is_empty() {
+        None
+    } else {
+        run.parse::<f32>().ok()
     }
 }
 
@@ -1590,6 +1873,19 @@ fn dial_params(l: &mut Layout, m: &ParamStrip, top: f32, s: f32) {
                     band(m.ctrl_x1 - m.step_w, m.ctrl_x1, cy, FIELD_H * s);
                 l.dial_values[value] =
                     band(m.ctrl_x0 + m.step_w, m.ctrl_x1 - m.step_w, cy, FIELD_H * s);
+                if value == 0 {
+                    // The number sits in an edit, not on the paper: leave a
+                    // couple of pixels all round so the frame drawn behind it
+                    // reads as a field rather than as a floating caret.
+                    let r = l.dial_values[0];
+                    let pad = (2.0 * s).round().max(1.0) as i32;
+                    l.dial_radius_input = RECT {
+                        left: r.left + pad,
+                        top: r.top + pad,
+                        right: (r.right - pad).max(r.left + pad + 1),
+                        bottom: (r.bottom - pad).max(r.top + pad + 1),
+                    };
+                }
             }
         }
         py += h + DIAL_ROW_GAP * s;
@@ -2102,6 +2398,7 @@ pub fn open(
             wheel_theme: settings.wheel_theme,
             wheel_accent: settings.wheel_accent,
             wheel_seam: settings.wheel_seam,
+            colour_scheme: settings.colour_scheme,
             wheel_open_ms: settings.wheel_open_ms,
             wheel_limit: settings.wheel_limit,
             dial_order: settings.dial_order,
@@ -2110,6 +2407,8 @@ pub fn open(
             dial_steps: [HWND::default(); 6],
             dial_pool: Vec::new(),
             dial_search: HWND::default(),
+            radius_edit: HWND::default(),
+            radius_focused: false,
             pool_all: Vec::new(),
             pool_query: String::new(),
             pool_view: Vec::new(),
@@ -2125,6 +2424,9 @@ pub fn open(
             theme_thumbs_key: (0, 0, 0, 0, 0),
             theme_switch_at: None,
             dial_press: None,
+            seat_drag: None,
+            anchor_drag: None,
+            colour_panel: None,
             dial_toast: None,
             canvas: PreviewCanvas::default(),
             page: PageCanvas::default(),
@@ -2169,6 +2471,24 @@ pub(crate) fn refresh_rows() {
         let _ = PostMessageW(
             Some(HWND(raw as *mut c_void)),
             WM_ROWS_CHANGED,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+}
+
+/// A sector's size changed. Unlike `refresh_rows`, nothing about the list of
+/// windows moved, so the page need only drop its still picture. Called from a
+/// live drag, where a full desk read on every mouse move would be felt.
+pub(crate) fn refresh_weights() {
+    let raw = SETTINGS_HWND.load(Ordering::Relaxed);
+    if raw == 0 {
+        return;
+    }
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(raw as *mut c_void)),
+            WM_WEIGHTS_CHANGED,
             WPARAM(0),
             LPARAM(0),
         );
@@ -2394,6 +2714,40 @@ impl State {
             let hint = wstr(&self.search_hint);
             let _ = SetWindowTextW(search, PCWSTR(hint.as_ptr()));
             self.slots.push((SEC_DIAL, search));
+            // The radius value: the same stock EDIT, so a size can be typed
+            // rather than reached ten pixels at a time. `ES_CENTER |
+            // ES_AUTOHSCROLL` keeps the "150 px" in the middle of the band the
+            // two arrows leave for it. The frame around it is painted by the
+            // page, hence the child's inset rectangle.
+            let radius_style = WINDOW_STYLE(ES_CENTER | ES_AUTOHSCROLL);
+            let radius = self.child(
+                parent,
+                w!("EDIT"),
+                l.dial_radius_input,
+                RADIUS_EDIT_ID,
+                radius_style,
+            );
+            let _ = SendMessageW(
+                radius,
+                WM_SETFONT,
+                Some(WPARAM(self.fonts[1].0 as usize)),
+                Some(LPARAM(1)),
+            );
+            let _ = SendMessageW(radius, EM_SETLIMITTEXT, Some(WPARAM(12)), None);
+            self.radius_edit = radius;
+            self.set_radius_text();
+            // Two keys are the field's own business: Enter commits without
+            // leaving the field, and Ctrl+A selects the whole "150 px" so the
+            // first digit typed replaces it. Everything else - IME, clipboard,
+            // caret - stays the stock control's.
+            let old = std::mem::transmute::<isize, WNDPROC>(GetWindowLongPtrW(
+                radius,
+                GWLP_WNDPROC,
+            ));
+            let boxed = Box::into_raw(Box::new(RadiusEdit { old, panel: parent }));
+            SetWindowLongPtrW(radius, GWLP_USERDATA, boxed as isize);
+            SetWindowLongPtrW(radius, GWLP_WNDPROC, radius_edit_proc as *const () as isize);
+            self.slots.push((SEC_DIAL, radius));
             // --- the languages ----------------------------------------------------
             // One button per language on offer, and the one being used is the one
             // that looks pressed. They are ordinary buttons rather than radio
@@ -2489,6 +2843,7 @@ impl State {
                         move_child(*cell, rect);
                     }
                     move_child(self.dial_search, l.dial_search_input);
+                    move_child(self.radius_edit, l.dial_radius_input);
                 }
                 SEC_LANG => {
                     for (at, cell) in self.lang_buttons.iter().enumerate() {
@@ -2528,9 +2883,20 @@ impl State {
                     // picture alone: entering a section is not the same as asking
                     // for it again.
                     self.refresh_dial_pool();
+                    let _ = SetTimer(
+                        Some(self.hwnd),
+                        DIAL_POOL_TIMER,
+                        DIAL_POOL_MS,
+                        None,
+                    );
                     let _ = InvalidateRect(Some(self.hwnd), None, false);
                 }
                 return;
+            }
+            // Leaving the dial page stops the watch on the desk; the list is
+            // re-read on the way back in anyway.
+            if self.section == SEC_DIAL {
+                let _ = KillTimer(Some(self.hwnd), DIAL_POOL_TIMER);
             }
             self.section = section;
             let mut client = RECT::default();
@@ -2557,7 +2923,11 @@ impl State {
                 // same windows the panel would.
                 self.preview = None;
                 self.refresh_dial_pool();
+                let _ = SetTimer(Some(self.hwnd), DIAL_POOL_TIMER, DIAL_POOL_MS, None);
                 self.log_dial_layout();
+            } else {
+                // Any other page has no list to keep fresh; stop the watch.
+                let _ = KillTimer(Some(self.hwnd), DIAL_POOL_TIMER);
             }
             for (at, button) in self.nav_buttons.iter().enumerate() {
                 self.press(*button, at == section);
@@ -2853,14 +3223,10 @@ impl State {
             // control, so there is one thing to keep in step with the draft.
             match l.section {
                 SEC_DIAL => {
-                    self.text(
-                        hdc,
-                        &format!("{} px", self.wheel_radius.round()),
-                        F_TITLE,
-                        INK,
-                        l.dial_values[0],
-                        DT_VCENTER | DT_CENTER,
-                    );
+                    // The size is an input now: the page paints its frame and the
+                    // edit control paints the number inside it. A field that can
+                    // be typed into has to look like one.
+                    self.radius_frame(hdc, l.dial_values[0], self.radius_focused);
                     self.text(
                         hdc,
                         &format!("{:.0} px", self.wheel_seam),
@@ -3047,6 +3413,12 @@ impl State {
                 _ => {}
             }
 
+            // The colour card sits above everything else the page draws, so it
+            // goes down last and is part of the same blit.
+            if self.colour_panel.is_some() {
+                self.paint_colour_panel(hdc, client, asked);
+            }
+
             // One blit, only the rectangle this paint was asked to cover. The
             // window surface goes from yesterday's frame to the finished one,
             // with no paper in between.
@@ -3115,6 +3487,25 @@ impl State {
             let _ = LineTo(hdc, cx + corner + tip, cy + corner + tip);
             let _ = SelectObject(hdc, old_glyph);
             let _ = DeleteObject(glyph.into());
+            let _ = SelectObject(hdc, old_brush);
+            let _ = SelectObject(hdc, old_pen);
+            let _ = DeleteObject(brush.into());
+            let _ = DeleteObject(pen.into());
+        }
+    }
+
+    /// The radius field's frame. Same paper, edge and focus accent as the search
+    /// box, without the magnifier: the number is the whole label here. The edit
+    /// child is inset by two pixels, so this border stays visible around it.
+    unsafe fn radius_frame(&self, hdc: HDC, r: RECT, focused: bool) {
+        unsafe {
+            let brush = solid(FIELD);
+            let border = if focused { FLAX } else { EDGE };
+            let pen = CreatePen(PS_SOLID, 1, rgb(border));
+            let old_brush = SelectObject(hdc, brush.into());
+            let old_pen = SelectObject(hdc, pen.into());
+            let radius = (RADIUS * 1.4 * self.scale) as i32;
+            let _ = RoundRect(hdc, r.left, r.top, r.right, r.bottom, radius, radius);
             let _ = SelectObject(hdc, old_brush);
             let _ = SelectObject(hdc, old_pen);
             let _ = DeleteObject(brush.into());
@@ -3602,6 +3993,58 @@ impl State {
         }
     }
 
+    /// Put the draft's radius back into the field, with its unit. Called after a
+    /// stepper, a commit and a rollback: the field and the number underneath it
+    /// are never allowed to disagree for a frame.
+    unsafe fn set_radius_text(&self) {
+        if self.radius_edit.is_invalid() {
+            return;
+        }
+        let text = wstr(&format!("{} px", self.wheel_radius.round()));
+        unsafe {
+            let _ = SetWindowTextW(self.radius_edit, PCWSTR(text.as_ptr()));
+        }
+    }
+
+    /// Read what was typed, clamp it, and let the rest of the page behave
+    /// exactly as it does after a stepper click. An empty or nonsense field is
+    /// not a new size - it is put back to the number the dial is really using.
+    unsafe fn commit_radius(&mut self) {
+        if self.radius_edit.is_invalid() {
+            return;
+        }
+        let mut text = [0u16; 32];
+        let len = unsafe { GetWindowTextW(self.radius_edit, &mut text) as usize };
+        let typed = String::from_utf16_lossy(&text[..len.min(text.len())]);
+        let next = parse_radius(&typed)
+            .map(|v| v.clamp(RADIUS_MIN, RADIUS_MAX))
+            .unwrap_or(self.wheel_radius);
+        let changed = (next - self.wheel_radius).abs() > 0.01;
+        self.wheel_radius = next;
+        self.set_radius_text();
+        let l = self.layout;
+        unsafe {
+            let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[0]), false);
+            // Keep the typed number selected, so Enter can be pressed again or
+            // another size typed without reaching for Ctrl+A.
+            let _ = SendMessageW(
+                self.radius_edit,
+                EM_SETSEL,
+                Some(WPARAM(0)),
+                Some(LPARAM(-1)),
+            );
+        }
+        if !changed {
+            return;
+        }
+        self.preview = None;
+        unsafe {
+            let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_preview), false);
+        }
+        self.refresh_steppers();
+        self.moved();
+    }
+
     /// The two steppers: dial radius, then the air between sectors. Both change
     /// what the picture beside them holds, so the picture is thrown away and made
     /// again on the next paint.
@@ -3613,6 +4056,7 @@ impl State {
                 0 | 1 => {
                     let d = if at == 0 { -RADIUS_STEP } else { RADIUS_STEP };
                     self.wheel_radius = (self.wheel_radius + d).clamp(RADIUS_MIN, RADIUS_MAX);
+                    self.set_radius_text();
                     let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[0]), false);
                 }
                 _ => {
@@ -3812,12 +4256,13 @@ impl State {
         settings.wheel_theme = self.wheel_theme;
         settings.wheel_accent = self.wheel_accent;
         settings.wheel_seam = self.wheel_seam;
+        settings.colour_scheme = self.colour_scheme;
         settings.wheel_radius = self.wheel_radius;
         settings.wheel_dead = self.wheel_dead;
         settings.wheel_open_ms = self.wheel_open_ms;
         settings.wheel_limit = self.wheel_limit;
         settings.dial_order = self.dial_order;
-        let snapshot = match self.preview_desk.as_ref() {
+        let mut snapshot = match self.preview_desk.as_ref() {
             Some((list, front)) => crate::wheel::snapshot_of(&settings, list.clone(), *front),
             None => {
                 let read = Instant::now();
@@ -3833,6 +4278,18 @@ impl State {
                 snapshot
             }
         };
+        // The carried sector is lit while the hand moves, so the picture says
+        // which one is following the pointer.
+        let hot_target = self
+            .seat_drag
+            .as_ref()
+            .filter(|drag| drag.moved)
+            .map(|drag| drag.from.clone());
+        if let Some(target) = &hot_target {
+            for seat in &mut snapshot.seats {
+                seat.hot = seat.fingerprint == *target;
+            }
+        }
         // The key has to name the seats themselves, not only the numbers that
         // produce them. A row can move between "on the dial" and "not" while the
         // radius, the limit and the window count stay exactly the same - and a
@@ -3846,6 +4303,7 @@ impl State {
                 seat.ring.hash(&mut hasher);
                 seat.span.to_bits().hash(&mut hasher);
             }
+            hot_target.hash(&mut hasher);
             hasher.finish()
         };
         let key = (
@@ -3887,9 +4345,10 @@ impl State {
         );
         let render_ms = started.elapsed().as_secs_f32() * 1000.0;
         crate::log!(
-            "dial rebuild: side={side} seats={} limit={} render={render_ms:.2}ms",
+            "dial rebuild: side={side} seats={} limit={} render={render_ms:.2}ms order={:x?}",
             snapshot.seats.len(),
-            settings.wheel_limit
+            settings.wheel_limit,
+            snapshot.seats.iter().map(|seat| seat.hwnd).collect::<Vec<_>>()
         );
         self.preview = Some(DialPreview {
             pixmap,
@@ -3986,9 +4445,517 @@ impl State {
             .map(|seat| seat.fingerprint.clone())
     }
 
+    /// The window under a press inside the preview, as the fingerprint and the
+    /// handle: the fingerprint names it for the order list, the handle names it
+    /// when a look-alike shares that fingerprint.
+    fn preview_seat(&self, x: i32, y: i32) -> Option<(String, isize)> {
+        let fingerprint = self.preview_fingerprint(x, y)?;
+        let hwnd = self
+            .preview
+            .as_ref()?
+            .snapshot
+            .seats
+            .iter()
+            .find(|seat| seat.fingerprint == fingerprint)
+            .map(|seat| seat.hwnd)?;
+        Some((fingerprint, hwnd))
+    }
+
+    /// The seat the pointer points at, by angle alone. A drop does not have to
+    /// land on the coloured band: releasing anywhere in the disc means the slice
+    /// the pointer is aimed at, hub included, which is what a hand actually does
+    /// when it throws a window at a slice.
+    fn preview_seat_by_angle(&self, x: i32, y: i32) -> Option<(String, isize)> {
+        let l = self.layout;
+        let preview = self.preview.as_ref()?;
+        let cx = l.dial_preview.left as f32 + preview.side as f32 / 2.0;
+        let cy = l.dial_preview.top as f32 + preview.side as f32 / 2.0;
+        let dx = x as f32 - cx;
+        let dy = y as f32 - cy;
+        let half = preview.side as f32 / 2.0;
+        if dx * dx + dy * dy > half * half {
+            return None;
+        }
+        let angle = (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0);
+        for seat in &preview.snapshot.seats {
+            let from = (seat.bearing - seat.span / 2.0).rem_euclid(360.0);
+            let to = (seat.bearing + seat.span / 2.0).rem_euclid(360.0);
+            let within = if from <= to {
+                angle >= from && angle < to
+            } else {
+                angle >= from || angle < to
+            };
+            if within {
+                return Some((seat.fingerprint.clone(), seat.hwnd));
+            }
+        }
+        None
+    }
+
+    /// The seam anchor (the little dot on a sector boundary) under the pointer,
+    /// if any. Returns the seam index plus the fingerprints of the two seats
+    /// it separates, left then right in snapshot order.
+    fn hit_anchor(&self, x: i32, y: i32) -> Option<(usize, String, String)> {
+        let l = self.layout;
+        let preview = self.preview.as_ref()?;
+        if x < l.dial_preview.left
+            || x >= l.dial_preview.right
+            || y < l.dial_preview.top
+            || y >= l.dial_preview.bottom
+        {
+            return None;
+        }
+        let px = (x - l.dial_preview.left) as f32;
+        let py = (y - l.dial_preview.top) as f32;
+        let cx = preview.side as f32 / 2.0;
+        let cy = preview.side as f32 / 2.0;
+        let scale = preview.scale.max(0.1);
+        let n = preview.snapshot.seats.len();
+        if n < 2 {
+            return None;
+        }
+        let hit_r = 10.0 * scale;
+        let hit_r2 = hit_r * hit_r;
+        for i in 0..n {
+            let seat = &preview.snapshot.seats[i];
+            let Some(ring) = preview.snapshot.bounds.get(seat.ring) else {
+                continue;
+            };
+            let rr = (ring.lo + ring.hi) / 2.0 * scale;
+            // seam bearing is the right edge of seat i (clockwise)
+            let seam_bearing = seat.bearing + seat.span / 2.0;
+            let mid_rad = (seam_bearing - 90.0).to_radians();
+            let ax = cx + mid_rad.cos() * rr;
+            let ay = cy + mid_rad.sin() * rr;
+            let dx = px - ax;
+            let dy = py - ay;
+            if dx * dx + dy * dy <= hit_r2 {
+                let left = seat.fingerprint.clone();
+                let right = preview.snapshot.seats[(i + 1) % n].fingerprint.clone();
+                return Some((i, left, right));
+            }
+        }
+        None
+    }
+
+    // --- the colour card -------------------------------------------------------
+
+    /// Where the card sits and what it is made of. Computed from the click that
+    /// opened it, clamped inside the page so the card is never half off screen.
+    fn colour_layout(&self, client: RECT) -> Option<ColourLayout> {
+        let panel = self.colour_panel.as_ref()?;
+        let s = self.scale.max(0.5);
+        let pad = (COLOUR_CARD_PAD * s).round();
+        let inner = COLOUR_CARD_W * s - pad * 2.0;
+        let cols = COLOUR_SWATCH_COLS as f32;
+        let gap = (COLOUR_SWATCH_GAP * s).round();
+        let cell = ((inner - gap * (cols - 1.0)) / cols).round().max(10.0);
+        let rows = (COLOUR_PRESETS.len() as f32 / cols).ceil();
+        let grid_h = rows * cell + (rows - 1.0) * gap;
+        let slider_h = (COLOUR_SLIDER_H * s).round().max(6.0);
+        let slider_gap = (COLOUR_SLIDER_GAP * s).round();
+        let title_h = (18.0 * s).round();
+        let sub_h = (14.0 * s).round();
+        let footer_h = (26.0 * s).round();
+        let lead = (8.0 * s).round();
+        let w = (COLOUR_CARD_W * s).round();
+        let h = pad * 2.0
+            + title_h
+            + lead
+            + sub_h
+            + (6.0 * s).round()
+            + grid_h
+            + (14.0 * s).round()
+            + 3.0 * slider_h
+            + 2.0 * slider_gap
+            + (14.0 * s).round()
+            + footer_h;
+        let off = (16.0 * s).round();
+        let mut x = panel.at.0 as f32 + off;
+        let y = panel.at.1 as f32 - h * 0.35;
+        if x + w > client.right as f32 - pad {
+            x = panel.at.0 as f32 - w - off;
+        }
+        let max_x = (client.right as f32 - w - pad).max(client.left as f32 + pad);
+        let max_y = (client.bottom as f32 - h - pad).max(client.top as f32 + pad);
+        let x = x.clamp(client.left as f32 + pad, max_x).round();
+        let y = y.clamp(client.top as f32 + pad, max_y).round();
+        let card = RECT {
+            left: x as i32,
+            top: y as i32,
+            right: (x + w) as i32,
+            bottom: (y + h) as i32,
+        };
+        let left = card.left as f32 + pad;
+        let mut top = card.top as f32 + pad + title_h + lead + sub_h + (6.0 * s).round();
+        let mut swatches = Vec::with_capacity(COLOUR_PRESETS.len());
+        for i in 0..COLOUR_PRESETS.len() {
+            let col = (i % COLOUR_SWATCH_COLS) as f32;
+            let row = (i / COLOUR_SWATCH_COLS) as f32;
+            let sx = left + col * (cell + gap);
+            let sy = top + row * (cell + gap);
+            swatches.push(RECT {
+                left: sx as i32,
+                top: sy as i32,
+                right: (sx + cell) as i32,
+                bottom: (sy + cell) as i32,
+            });
+        }
+        top += grid_h + (14.0 * s).round();
+        let track_left = left + (18.0 * s).round();
+        let track_right = card.right as f32 - pad;
+        let mut sliders = [RECT::default(); 3];
+        for (i, slider) in sliders.iter_mut().enumerate() {
+            let ty = top + i as f32 * (slider_h + slider_gap);
+            *slider = RECT {
+                left: track_left as i32,
+                top: ty as i32,
+                right: track_right as i32,
+                bottom: (ty + slider_h) as i32,
+            };
+        }
+        let foot_y = (top + 3.0 * slider_h + 2.0 * slider_gap + (14.0 * s).round()) as i32;
+        let btn_w = (52.0 * s).round() as i32;
+        let btn_gap = (6.0 * s).round() as i32;
+        let done = RECT {
+            left: card.right - pad as i32 - btn_w,
+            top: foot_y,
+            right: card.right - pad as i32,
+            bottom: foot_y + footer_h as i32,
+        };
+        let cancel = RECT {
+            left: done.left - btn_gap - btn_w,
+            top: foot_y,
+            right: done.left - btn_gap,
+            bottom: foot_y + footer_h as i32,
+        };
+        let chip = RECT {
+            left: left as i32,
+            top: foot_y + ((footer_h - (22.0 * s).round()) / 2.0) as i32,
+            right: left as i32 + (34.0 * s).round() as i32,
+            bottom: foot_y + ((footer_h + (22.0 * s).round()) / 2.0) as i32,
+        };
+        Some(ColourLayout {
+            card,
+            swatches,
+            sliders,
+            cancel,
+            done,
+            chip,
+        })
+    }
+
+    unsafe fn open_colour_panel(&mut self, mark: String, rgb: Rgb, at: (i32, i32)) {
+        let before = (*self.app).custom_colour(&mark);
+        self.colour_panel = Some(ColourPanel {
+            mark,
+            before,
+            rgb,
+            at,
+            drag: None,
+        });
+    }
+
+    /// Every step of the card lands on the dial at once: the picture is rebuilt
+    /// from the settings the card is writing, so the slice in the picture is the
+    /// colour under the finger. Nothing is written to the file until the card is
+    /// accepted, so a cancel leaves the file untouched.
+    unsafe fn apply_panel_colour(&mut self, hwnd: HWND, rgb: Rgb) {
+        let Some(panel) = self.colour_panel.as_mut() else {
+            return;
+        };
+        panel.rgb = rgb;
+        let mark = panel.mark.clone();
+        (*self.app).preview_window_color(&mark, Some(rgb));
+        self.preview = None;
+        let _ = InvalidateRect(Some(hwnd), None, false);
+    }
+
+    unsafe fn close_colour_panel(&mut self, hwnd: HWND, keep: bool) {
+        let Some(panel) = self.colour_panel.take() else {
+            return;
+        };
+        if keep {
+            (*self.app).set_window_color(&panel.mark, Some(panel.rgb));
+        } else {
+            (*self.app).set_window_color(&panel.mark, panel.before);
+        }
+        self.preview = None;
+        let _ = InvalidateRect(Some(hwnd), None, false);
+    }
+
+    fn colour_panel_hit(&self, client: RECT, x: i32, y: i32) -> ColourHit {
+        let Some(lay) = self.colour_layout(client) else {
+            return ColourHit::Outside;
+        };
+        let inside = |r: RECT| x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+        if !inside(lay.card) {
+            return ColourHit::Outside;
+        }
+        if inside(lay.done) {
+            return ColourHit::Done;
+        }
+        if inside(lay.cancel) {
+            return ColourHit::Cancel;
+        }
+        for (i, cell) in lay.swatches.iter().enumerate() {
+            if inside(*cell) {
+                return ColourHit::Swatch(i);
+            }
+        }
+        for (i, slider) in lay.sliders.iter().enumerate() {
+            if inside(*slider) {
+                return ColourHit::Slider(i);
+            }
+        }
+        ColourHit::Inside
+    }
+
+    /// Moves one track of the card to where the pointer is. The other two stay
+    /// where they were, so pulling the hue does not also wash the colour out.
+    unsafe fn drag_panel_slider(&mut self, hwnd: HWND, x: i32) {
+        let Some(panel) = self.colour_panel.as_ref() else {
+            return;
+        };
+        let Some(which) = panel.drag else {
+            return;
+        };
+        let mut client = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        let Some(lay) = self.colour_layout(client) else {
+            return;
+        };
+        let track = lay.sliders[which];
+        let span = (track.right - track.left).max(1) as f32;
+        let v = ((x - track.left) as f32 / span).clamp(0.0, 1.0);
+        let (h, s, l) = panel.hsl();
+        let rgb = match which {
+            0 => hsl_to_rgb(v, s, l),
+            1 => hsl_to_rgb(h, v, l),
+            _ => hsl_to_rgb(h, s, v),
+        };
+        self.apply_panel_colour(hwnd, rgb);
+    }
+
+    /// The colour card, drawn over whatever the page has already put down. It is
+    /// painted last and clipped to the paint's own rectangle, so a card that
+    /// overlaps the picture lands on top of it in the same frame.
+    unsafe fn paint_colour_panel(&self, hdc: HDC, client: RECT, asked: RECT) {
+        let Some(panel) = self.colour_panel.as_ref() else {
+            return;
+        };
+        let Some(lay) = self.colour_layout(client) else {
+            return;
+        };
+        let card = lay.card;
+        if asked.right <= card.left
+            || asked.left >= card.right
+            || asked.bottom <= card.top
+            || asked.top >= card.bottom
+        {
+            return;
+        }
+        let s = self.scale.max(0.5);
+        let radius = ((RADIUS * 2.0) * s) as i32;
+        unsafe {
+            // A soft edge so the card reads as sitting above the page rather
+            // than as another card in the flow.
+            for (off, colour) in [(4, (208, 213, 221)), (2, (226, 230, 236))] {
+                let brush = solid(colour);
+                let pen = CreatePen(PS_SOLID, 1, rgb(colour));
+                let old_brush = SelectObject(hdc, brush.into());
+                let old_pen = SelectObject(hdc, pen.into());
+                let _ = RoundRect(
+                    hdc,
+                    card.left + off,
+                    card.top + off,
+                    card.right + off,
+                    card.bottom + off,
+                    radius,
+                    radius,
+                );
+                let _ = SelectObject(hdc, old_brush);
+                let _ = SelectObject(hdc, old_pen);
+                let _ = DeleteObject(brush.into());
+                let _ = DeleteObject(pen.into());
+            }
+            let brush = solid(FIELD);
+            let pen = CreatePen(PS_SOLID, 1, rgb(EDGE));
+            let old_brush = SelectObject(hdc, brush.into());
+            let old_pen = SelectObject(hdc, pen.into());
+            let _ = RoundRect(
+                hdc,
+                card.left,
+                card.top,
+                card.right,
+                card.bottom,
+                radius,
+                radius,
+            );
+            let _ = SelectObject(hdc, old_brush);
+            let _ = SelectObject(hdc, old_pen);
+            let _ = DeleteObject(brush.into());
+            let _ = DeleteObject(pen.into());
+
+            let pad = (COLOUR_CARD_PAD * s).round() as i32;
+            let title_h = (18.0 * s).round() as i32;
+            let lead = (8.0 * s).round() as i32;
+            let sub_h = (14.0 * s).round() as i32;
+            let title = RECT {
+                left: card.left + pad,
+                top: card.top + pad,
+                right: card.right - pad,
+                bottom: card.top + pad + title_h,
+            };
+            self.text(
+                hdc,
+                crate::i18n::t("colour_panel_title"),
+                F_BUTTON,
+                INK,
+                title,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+            let sub = RECT {
+                left: card.left + pad,
+                top: title.bottom + lead,
+                right: card.right - pad,
+                bottom: title.bottom + lead + sub_h,
+            };
+            self.text(
+                hdc,
+                crate::i18n::t("colour_panel_presets"),
+                F_NOTE,
+                MUTED,
+                sub,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+
+            // Presets. The one already in use wears an ink ring, so the card
+            // says which colour the slice is on rather than making the user
+            // compare two patches across the window.
+            let Rgb(cr, cg, cb) = panel.rgb;
+            for (i, cell) in lay.swatches.iter().enumerate() {
+                let (r, g, b) = COLOUR_PRESETS[i];
+                fill_flat(hdc, *cell, (r, g, b));
+                let picked = r == cr && g == cg && b == cb;
+                if picked {
+                    ring_flat(hdc, *cell, (2.0 * s).round().max(1.0) as i32, INK);
+                } else if r > 226 && g > 226 && b > 226 {
+                    // A near-white patch on white paper would have no shape of
+                    // its own; a hairline gives it one.
+                    ring_flat(hdc, *cell, 1, EDGE);
+                }
+            }
+
+            // The three tracks. Hue runs the full circle at full saturation;
+            // saturation and lightness run against the colour as it stands, so
+            // the track shows exactly what moving it does.
+            let (h, sat, light) = panel.hsl();
+            let labels = ["H", "S", "L"];
+            let radius_knob = (COLOUR_SLIDER_H * s * 0.72).round().max(4.0) as i32;
+            for (i, track) in lay.sliders.iter().enumerate() {
+                let label = RECT {
+                    left: card.left + pad,
+                    top: track.top - (4.0 * s).round() as i32,
+                    right: track.left - (2.0 * s).round() as i32,
+                    bottom: track.bottom + (4.0 * s).round() as i32,
+                };
+                self.text(
+                    hdc,
+                    labels[i],
+                    F_NOTE,
+                    MUTED,
+                    label,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+                match i {
+                    0 => gradient_flat(hdc, *track, 64, |v| hsl_to_rgb(v, 1.0, 0.5)),
+                    1 => gradient_flat(hdc, *track, 32, |v| hsl_to_rgb(h, v, light.max(0.06))),
+                    _ => gradient_flat(hdc, *track, 32, |v| hsl_to_rgb(h, sat.min(1.0), v)),
+                }
+                ring_flat(hdc, *track, 1, RULE_COLOUR);
+                let value = match i {
+                    0 => h,
+                    1 => sat,
+                    _ => light,
+                };
+                let span = (track.right - track.left).max(1);
+                let kx = track.left + (span as f32 * value).round() as i32;
+                let ky = (track.top + track.bottom) / 2;
+                let knob = solid(FIELD);
+                let pen = CreatePen(PS_SOLID, (2.0 * s).round().max(1.0) as i32, rgb(INK));
+                let old_brush = SelectObject(hdc, knob.into());
+                let old_pen = SelectObject(hdc, pen.into());
+                let _ = Ellipse(
+                    hdc,
+                    kx - radius_knob,
+                    ky - radius_knob,
+                    kx + radius_knob,
+                    ky + radius_knob,
+                );
+                let _ = SelectObject(hdc, old_brush);
+                let _ = SelectObject(hdc, old_pen);
+                let _ = DeleteObject(knob.into());
+                let _ = DeleteObject(pen.into());
+            }
+
+            // The colour as it stands, beside the name of it.
+            fill_flat(hdc, lay.chip, (cr, cg, cb));
+            ring_flat(hdc, lay.chip, 1, EDGE);
+            let hex = RECT {
+                left: lay.chip.right + (8.0 * s).round() as i32,
+                top: lay.chip.top,
+                right: lay.cancel.left - (6.0 * s).round() as i32,
+                bottom: lay.chip.bottom,
+            };
+            self.text(
+                hdc,
+                &format!("#{cr:02X}{cg:02X}{cb:02X}"),
+                F_NOTE,
+                MUTED,
+                hex,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+
+            // Cancel puts the slice back; Done keeps what the card shows.
+            self.card(hdc, lay.cancel);
+            self.text(
+                hdc,
+                crate::i18n::t("tag_cancel"),
+                F_NOTE,
+                MUTED,
+                lay.cancel,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+            );
+            let accept = solid(SLATE);
+            let accept_pen = CreatePen(PS_SOLID, 1, rgb(SLATE));
+            let old_brush = SelectObject(hdc, accept.into());
+            let old_pen = SelectObject(hdc, accept_pen.into());
+            let _ = RoundRect(
+                hdc,
+                lay.done.left,
+                lay.done.top,
+                lay.done.right,
+                lay.done.bottom,
+                radius,
+                radius,
+            );
+            let _ = SelectObject(hdc, old_brush);
+            let _ = SelectObject(hdc, old_pen);
+            let _ = DeleteObject(accept.into());
+            let _ = DeleteObject(accept_pen.into());
+            self.text(
+                hdc,
+                crate::i18n::t("colour_panel_done"),
+                F_NOTE,
+                (255, 255, 255),
+                lay.done,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+            );
+        }
+    }
+
     /// The picture, composed in one buffer and put on the page with one blit.
-    /// The paper under the card and the frame itself exist off screen first;
-    /// only the finished pixels reach the window.
     unsafe fn paint_preview(&mut self, hdc: HDC, asked: RECT) {
         let Some(preview) = self.preview.as_ref() else {
             return;
@@ -4035,17 +5002,45 @@ impl State {
                 mem, local.left, local.top, w, h, src, local.left, local.top, w, h, blend,
             );
             let _ = BitBlt(hdc, x + local.left, y + local.top, w, h, Some(mem), local.left, local.top, SRCCOPY);
+            // Seam anchors: small circles on every sector boundary, one per ring
+            // the dial draws on. A press on one starts an anchor drag that
+            // widens that sector at the cost of its neighbour. Drawn directly
+            // on the window DC so the still pixmap stays live-dial clean.
+            let p = self.preview.as_ref().expect("checked above");
+            let snap = &p.snapshot;
+            let cx = (p.side as f32) / 2.0;
+            let cy = (p.side as f32) / 2.0;
+            let scale = p.scale.max(0.1);
+            let n = snap.seats.len();
+            if n >= 2 {
+                let _ = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+                let pen_color = ((120u32) << 16) | ((140u32) << 8) | 160u32;
+                let pen = CreatePen(PS_SOLID, (2.0 * scale) as i32, COLORREF(pen_color));
+                let _ = SelectObject(hdc, pen.into());
+                let r = (5.0 * scale) as i32;
+                for i in 0..n {
+                    let seat = &snap.seats[i];
+                    let Some(ring) = snap.bounds.get(seat.ring) else {
+                        continue;
+                    };
+                    let rr = (ring.lo + ring.hi) / 2.0 * scale;
+                    let seam_bearing = seat.bearing + seat.span / 2.0;
+                    let mid_rad = (seam_bearing - 90.0).to_radians();
+                    let ax = x as f32 + cx + mid_rad.cos() * rr;
+                    let ay = y as f32 + cy + mid_rad.sin() * rr;
+                    let wx = ax as i32;
+                    let wy = ay as i32;
+                    if wx + r >= asked.left
+                        && wx - r < asked.right
+                        && wy + r >= asked.top
+                        && wy - r < asked.bottom
+                    {
+                        let _ = Ellipse(hdc, wx - r, wy - r, wx + r, wy + r);
+                    }
+                }
+                let _ = DeleteObject(pen.into());
+            }
         }
-    }
-
-    /// A click on the preview is a click on the window it landed on: the same
-    /// sector the wheel would have hovered opens its label editor. Anything the
-    /// pointer hits outside the disc - or in the hub - is left alone.
-    unsafe fn click_preview(&mut self, x: i32, y: i32) {
-        let Some(fingerprint) = self.preview_fingerprint(x, y) else {
-            return;
-        };
-        (*self.app).name_window_centered(&fingerprint, self.hwnd);
     }
 
     /// The one way anything leaves this window: the whole draft is offered to the
@@ -4121,6 +5116,7 @@ impl State {
             wheel_theme: self.wheel_theme,
             wheel_accent: self.wheel_accent,
             wheel_seam: self.wheel_seam,
+            colour_scheme: self.colour_scheme,
             wheel_open_ms: self.wheel_open_ms,
             wheel_limit: self.wheel_limit,
             dial_order: self.dial_order,
@@ -4139,10 +5135,12 @@ impl State {
         self.trigger_button = s.trigger_button;
         self.trigger_notice = None;
         self.wheel_radius = s.wheel_radius;
+        self.set_radius_text();
         self.wheel_dead = s.wheel_dead;
         self.wheel_theme = s.wheel_theme;
         self.wheel_accent = s.wheel_accent;
         self.wheel_seam = s.wheel_seam;
+        self.colour_scheme = s.colour_scheme;
         self.wheel_open_ms = s.wheel_open_ms;
         // The limit is part of what an apply either took or refused. Leaving it
         // at the refused number made the arrows keep counting up a dial that
@@ -4654,7 +5652,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // is in the field, it is grey, the way a hint should read.
                 let hdc = HDC(wp.0 as *mut c_void);
                 let _ = SetBkColor(hdc, rgb(FIELD));
-                let text = if state.search_show_hint { MUTED } else { INK };
+                // `lp` is the edit asking. The radius field always shows a real
+                // number, so it never wears the search box's placeholder grey.
+                let is_radius = lp.0 == state.radius_edit.0 as isize;
+                let text = if is_radius || !state.search_show_hint {
+                    INK
+                } else {
+                    MUTED
+                };
                 let _ = SetTextColor(hdc, rgb(text));
                 LRESULT(state.search_brush.0 as isize)
             }
@@ -4667,6 +5672,36 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // moment it was moved.
                 if id == ESCAPE_ID && (notification == 0 || notification == BN_CLICKED) {
                     let _ = DestroyWindow(hwnd);
+                    return LRESULT(0);
+                }
+                if id == RADIUS_EDIT_ID && notification == EN_SETFOCUS {
+                    // Taking the field selects the whole "150 px", so the first
+                    // digit typed replaces it. The frame warms to say where the
+                    // keys are going, exactly as the search field's does.
+                    state.radius_focused = true;
+                    let _ = SendMessageW(
+                        state.radius_edit,
+                        EM_SETSEL,
+                        Some(WPARAM(0)),
+                        Some(LPARAM(-1)),
+                    );
+                    let _ = SendMessageW(
+                        state.radius_edit,
+                        EM_SCROLLCARET,
+                        Some(WPARAM(0)),
+                        Some(LPARAM(0)),
+                    );
+                    let frame = state.layout.dial_values[0];
+                    let _ = InvalidateRect(Some(hwnd), Some(&frame), false);
+                    return LRESULT(0);
+                }
+                if id == RADIUS_EDIT_ID && notification == EN_KILLFOCUS {
+                    // Clicking away is a commit. Enter commits from the control's
+                    // own queue below; both paths end in the same number.
+                    state.radius_focused = false;
+                    state.commit_radius();
+                    let frame = state.layout.dial_values[0];
+                    let _ = InvalidateRect(Some(hwnd), Some(&frame), false);
                     return LRESULT(0);
                 }
                 if id == SEARCH_ID && notification == 0x0100 {
@@ -4767,9 +5802,122 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
+                // A track being dragged follows the pointer, and the dial follows
+                // the track. This comes first so a drag on the card is never
+                // mistaken for a drag on the picture underneath it.
+                if state.colour_panel.as_ref().is_some_and(|p| p.drag.is_some()) {
+                    let x = (lp.0 as i16) as i32;
+                    state.drag_panel_slider(hwnd, x);
+                    return LRESULT(0);
+                }
                 if state.section == SEC_DIAL {
                     let x = (lp.0 as i16) as i32;
                     let y = ((lp.0 >> 16) as i16) as i32;
+                    // An anchor drag resizes the two neighbouring sectors live:
+                    // every mouse move nudges both spans and the disc repaints
+                    // with the new weights. It is handled before the sector
+                    // swap drag so the two do not fight over the same press.
+                    if let Some(drag) = state.anchor_drag.take() {
+                        // The angle is measured against the centre the press
+                        // remembered, not against the live preview: every move
+                        // below throws the still picture away, and a drag that
+                        // needed it back would stop after the first move.
+                        let dx = (x - drag.cx) as f32;
+                        let dy = (y - drag.cy) as f32;
+                        let angle = (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0);
+                        let mut delta = angle - drag.start_angle;
+                        if delta > 180.0 {
+                            delta -= 360.0;
+                        }
+                        if delta < -180.0 {
+                            delta += 360.0;
+                        }
+                        // The two neighbours take the whole delta; everything
+                        // else keeps the weight it had. `snapshot_of` divides by
+                        // the sum of all weights, so the rest of the rim gives
+                        // way by itself - the old answer insisted the neighbour
+                        // alone pay for the growth, and stopped as soon as it
+                        // reached its floor, a few degrees in.
+                        let total = drag.total_weight.max(1.0);
+                        let left_w = ((drag.start_left_span + delta) * total / 360.0).clamp(
+                            crate::settings::SECTOR_WEIGHT_MIN,
+                            crate::settings::SECTOR_WEIGHT_MAX,
+                        );
+                        let right_w = ((drag.start_right_span - delta) * total / 360.0).clamp(
+                            crate::settings::SECTOR_WEIGHT_MIN,
+                            crate::settings::SECTOR_WEIGHT_MAX,
+                        );
+                        (*state.app).set_window_weights(&[
+                            (drag.left_fp.clone(), left_w),
+                            (drag.right_fp.clone(), right_w),
+                        ]);
+                        state.anchor_drag = Some(drag);
+                    }
+                    // A sector that was pressed may have travelled: from that
+                    // moment the sector under the pointer trades places with the
+                    // one being carried, so the arrangement changes as the hand
+                    // moves and the release has nothing left to decide.
+                    let drag_state = state
+                        .seat_drag
+                        .as_ref()
+                        .map(|drag| (drag.start, drag.moved));
+                    if let Some((start, was_moved)) = drag_state {
+                        let slop = SEAT_DRAG_SLOP * state.scale;
+                        let dx = (x - start.0) as f32;
+                        let dy = (y - start.1) as f32;
+                        if was_moved || dx * dx + dy * dy >= slop * slop {
+                            if let Some(drag) = state.seat_drag.as_mut() {
+                                drag.moved = true;
+                            }
+                            // A drop aimed into the hub or a gap still means the
+                            // slice under the pointer's angle, so the sector is
+                            // read from the band first and from the angle second.
+                            let over = state
+                                .preview_seat(x, y)
+                                .or_else(|| state.preview_seat_by_angle(x, y));
+                            let carried = state
+                                .seat_drag
+                                .as_ref()
+                                .map(|drag| drag.from_hwnd);
+                            if let (Some((over_mark, over_hwnd)), Some(from_hwnd)) =
+                                (over, carried)
+                            {
+                                if over_hwnd != from_hwnd {
+                                    // The seats on screen are the order the swap is
+                                    // relative to, read before the picture is
+                                    // rebuilt with the two places exchanged.
+                                    let shown: Vec<(String, isize)> = state
+                                        .preview
+                                        .as_ref()
+                                        .map(|p| {
+                                            p.snapshot
+                                                .seats
+                                                .iter()
+                                                .map(|seat| {
+                                                    (seat.fingerprint.clone(), seat.hwnd)
+                                                })
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                    let from = state
+                                        .seat_drag
+                                        .as_ref()
+                                        .map(|drag| drag.from.clone())
+                                        .unwrap_or_default();
+                                    let app = state.app;
+                                    (*app).swap_seats(&from, from_hwnd, &over_mark, over_hwnd, &shown);
+                                    // The carried window takes the place the pointer
+                                    // is over, so it stays the one being carried -
+                                    // and staying put does not swap back.
+                                    if let Some(drag) = state.seat_drag.as_mut() {
+                                        drag.start = (x, y);
+                                    }
+                                    state.refresh_dial_pool();
+                                    state.invalidate_dial_rows(hwnd);
+                                }
+                            }
+                        }
+                    }
                     let rb = state.layout.dial_refresh;
                     let hot = x >= rb.left && x < rb.right && y >= rb.top && y < rb.bottom;
                     if hot != state.refresh_hot {
@@ -4794,7 +5942,48 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 }
                 LRESULT(0)
             }
+            WM_CAPTURECHANGED => {
+                // A drag whose capture went away (another window took the mouse)
+                // is cancelled rather than left waiting for a release it will
+                // never see. Seat swap drags and anchor resize drags both fall
+                // here, so both are torn down cleanly.
+                let torn = state.seat_drag.take().is_some() || state.anchor_drag.take().is_some();
+                if torn {
+                    state.preview = None;
+                    let rect = state.layout.dial_preview;
+                    let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                }
+                LRESULT(0)
+            }
             WM_LBUTTONDOWN => {
+                // The colour card, when it is open, owns the press before the
+                // page does: a click on a swatch or a track is a colour, a click
+                // anywhere else is "never mind".
+                if state.colour_panel.is_some() {
+                    let x = (lp.0 as i16) as i32;
+                    let y = ((lp.0 >> 16) as i16) as i32;
+                    let mut client = RECT::default();
+                    let _ = GetClientRect(hwnd, &mut client);
+                    match state.colour_panel_hit(client, x, y) {
+                        ColourHit::Outside | ColourHit::Cancel => {
+                            state.close_colour_panel(hwnd, false);
+                        }
+                        ColourHit::Done => state.close_colour_panel(hwnd, true),
+                        ColourHit::Swatch(at) => {
+                            let (r, g, b) = COLOUR_PRESETS[at];
+                            state.apply_panel_colour(hwnd, Rgb(r, g, b));
+                        }
+                        ColourHit::Slider(at) => {
+                            if let Some(panel) = state.colour_panel.as_mut() {
+                                panel.drag = Some(at);
+                            }
+                            let _ = SetCapture(hwnd);
+                            state.drag_panel_slider(hwnd, x);
+                        }
+                        ColourHit::Inside => {}
+                    }
+                    return LRESULT(0);
+                }
                 // The picture is painted by this window, so a press on a sector
                 // arrives here. The release is the click that renames it.
                 if state.section == SEC_DIAL {
@@ -4835,13 +6024,103 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         state.row_press = Some((at, (x, y)));
                         return LRESULT(0);
                     }
+                    // A press on a seam anchor (the little handle on a sector
+                    // boundary) starts an anchor drag that widens one neighbour
+                    // at the other's expense, live. It is checked before the
+                    // sector hit so an anchor under the pointer grabs instead
+                    // of the sector behind it.
+                    if let Some((seam, left_fp, right_fp)) = state.hit_anchor(x, y) {
+                        let Some(preview) = state.preview.as_ref() else {
+                            return LRESULT(0);
+                        };
+                        let n = preview.snapshot.seats.len();
+                        if n >= 2 {
+                            let snap = &preview.snapshot;
+                            let left_seat = &snap.seats[seam];
+                            let right_seat = &snap.seats[(seam + 1) % n];
+                            let start_angle = left_seat.bearing + left_seat.span / 2.0;
+                            let s = (*state.app).applied_settings();
+                            // `Dial::build` divides the weights *within one
+                            // ring*, so this is the sum for the ring the seam
+                            // belongs to - not every seat on the dial, and not
+                            // every weight in the file (some belong to windows
+                            // that are not on the dial at all). A hand-picked
+                            // weight trumps the even 1.0, exactly as it does
+                            // in `snapshot_of`.
+                            let ring = left_seat.ring;
+                            let total_weight: f32 = snap
+                                .seats
+                                .iter()
+                                .filter(|seat| seat.ring == ring)
+                                .map(|seat| {
+                                    s.custom_weight_for(&seat.fingerprint).unwrap_or(1.0)
+                                })
+                                .sum::<f32>()
+                                .max(0.01);
+                            state.anchor_drag = Some(AnchorDrag {
+                                left_fp,
+                                right_fp,
+                                total_weight,
+                                start_angle,
+                                start_left_span: left_seat.span,
+                                start_right_span: right_seat.span,
+                                cx: state.layout.dial_preview.left
+                                    + (preview.side as i32) / 2,
+                                cy: state.layout.dial_preview.top
+                                    + (preview.side as i32) / 2,
+                            });
+                            let _ = SetCapture(hwnd);
+                            return LRESULT(0);
+                        }
+                    }
+                    // A press on a sector may become a drag to another sector.
+                    // The rename click is still decided on release, by distance.
+                    if let Some((fingerprint, seat_hwnd)) = state.preview_seat(x, y) {
+                        state.dial_press = None;
+                        state.seat_drag = Some(SeatDrag {
+                            from: fingerprint,
+                            from_hwnd: seat_hwnd,
+                            start: (x, y),
+                            moved: false,
+                        });
+                        let _ = SetCapture(hwnd);
+                        return LRESULT(0);
+                    }
                 }
                 LRESULT(0)
             }
             WM_LBUTTONUP => {
+                // The end of a track drag. The colour has been showing since the
+                // first move, so this only lets go of the mouse.
+                if let Some(panel) = state.colour_panel.as_mut() {
+                    if panel.drag.take().is_some() {
+                        let _ = ReleaseCapture();
+                        return LRESULT(0);
+                    }
+                }
                 if state.section == SEC_DIAL {
                     let x = (lp.0 as i16) as i32;
                     let y = ((lp.0 >> 16) as i16) as i32;
+                    // An anchor drag ends here: the live weights are already
+                    // set on every mouse move, so the only cleanup is dropping
+                    // the drag state and releasing the capture.
+                    if state.anchor_drag.take().is_some() {
+                        let _ = ReleaseCapture();
+                        state.preview = None;
+                        let rect = state.layout.dial_preview;
+                        let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                        return LRESULT(0);
+                    }
+                    // A press that grabbed a sector ends here. Every sector the
+                    // pointer crossed while the button was down has already
+                    // traded places with the one being carried, so the release
+                    // only lets go; a press that never travelled changes nothing.
+                    if let Some(_drag) = state.seat_drag.take() {
+                        let _ = ReleaseCapture();
+                        state.preview = None;
+                        state.invalidate_dial_rows(hwnd);
+                        return LRESULT(0);
+                    }
                     let press = state.dial_press.take();
                     if let Some((at, (px, py))) = state.row_press.take() {
                         // A press on a row's name. It has no drag of its own any
@@ -4879,11 +6158,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         let slop = SEAT_DRAG_SLOP * state.scale;
                         let dx = (x - px) as f32;
                         let dy = (y - py) as f32;
-                        if dx * dx + dy * dy < slop * slop {
-                            state.click_preview(px, py);
-                        }
-                    } else {
-                        state.click_preview(x, y);
+                        let _ = slop;
+                        let _ = dx;
+                        let _ = dy;
+                        // Left-clicking the preview without starting a drag used
+                        // to rename the sector. That moved to the right-click menu
+                        // so a plain click doesn't fight with the drag-to-swap
+                        // gesture. We now fall straight to the drag swap below.
                     }
                 }
                 LRESULT(0)
@@ -5000,43 +6281,137 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         probe
                     );
                     if let Some(seat) = seat {
-                        let word = wstr(crate::i18n::t("menu_sector_remove"));
+                        // A sector is renamed from this menu, taken off by the
+                        // first item, and recoloured by the rest. The picker is
+                        // seeded with the colour already on the slice - the
+                        // user's own choice when there is one, the palette's when
+                        // there is not - so "a touch bluer" is one step, not a
+                        // hunt from white. "Reset" only appears once a hand-picked
+                        // colour or a dragged size is in place, because resetting
+                        // what was never changed is a menu item that lies.
+                        let custom = (*state.app).custom_colour(&seat.fingerprint);
+                        let cur_weight = (*state.app).window_weight(&seat.fingerprint);
+                        let sized = (cur_weight - 1.0).abs() > 0.01;
                         let menu = CreatePopupMenu().unwrap_or_default();
-                            if !menu.is_invalid() {
-                                let _ = AppendMenuW(menu, MF_STRING, 1, PCWSTR(word.as_ptr()));
-                                let mut at = POINT { x, y };
-                                let _ = ClientToScreen(hwnd, &mut at);
-                                // A native menu only runs its own loop when this
-                                // window can take the foreground. Without it the
-                                // track call can sit waiting forever and the page
-                                // stops answering, so it is asked first and the
-                                // menu is skipped rather than stranded.
-                                let owned = SetForegroundWindow(hwnd).as_bool();
-                                let picked = if owned {
-                                    TrackPopupMenu(
-                                        menu,
-                                        TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                                        at.x,
-                                        at.y,
-                                        Some(0),
-                                        hwnd,
-                                        None,
-                                    )
-                                } else {
-                                    crate::log!("sector menu: no foreground, menu skipped");
-                                    BOOL(0)
-                                };
-                                let _ = DestroyMenu(menu);
-                                let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
-                                crate::log!("sector menu: picked {}", picked.0);
-                                if picked.0 == 1 {
+                        if !menu.is_invalid() {
+                            let remove = wstr(crate::i18n::t("menu_sector_remove"));
+                            let rename = wstr(crate::i18n::t("menu_sector_rename"));
+                            let colour = wstr(crate::i18n::t("menu_sector_colour"));
+                            let _ = AppendMenuW(menu, MF_STRING, 1, PCWSTR(remove.as_ptr()));
+                            let _ = AppendMenuW(menu, MF_STRING, 10, PCWSTR(rename.as_ptr()));
+                            let _ = AppendMenuW(menu, MF_STRING, 2, PCWSTR(colour.as_ptr()));
+                            if custom.is_some() {
+                                let reset = wstr(crate::i18n::t("menu_sector_colour_reset"));
+                                let _ = AppendMenuW(menu, MF_STRING, 3, PCWSTR(reset.as_ptr()));
+                            }
+                            if sized {
+                                let reset_size = wstr(crate::i18n::t("menu_sector_size_reset"));
+                                let _ = AppendMenuW(menu, MF_STRING, 6, PCWSTR(reset_size.as_ptr()));
+                            }
+                            let mut at = POINT { x, y };
+                            let _ = ClientToScreen(hwnd, &mut at);
+                            // A native menu only runs its own loop when this
+                            // window can take the foreground. Without it the
+                            // track call can sit waiting forever and the page
+                            // stops answering, so it is asked first and the
+                            // menu is skipped rather than stranded.
+                            let owned = SetForegroundWindow(hwnd).as_bool();
+                            let picked = if owned {
+                                TrackPopupMenu(
+                                    menu,
+                                    TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                                    at.x,
+                                    at.y,
+                                    Some(0),
+                                    hwnd,
+                                    None,
+                                )
+                            } else {
+                                crate::log!("sector menu: no foreground, menu skipped");
+                                BOOL(0)
+                            };
+                            let _ = DestroyMenu(menu);
+                            let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+                            crate::log!("sector menu: picked {}", picked.0);
+                            match picked.0 {
+                                1 => {
                                     (*state.app).take_off_dial(&seat.fingerprint, seat.hwnd);
                                     state.preview = None;
                                     state.refresh_dial_pool();
                                     state.invalidate_dial_rows(hwnd);
                                 }
+                                2 => {
+                                    // The picker opens as a card over the page, with
+                                    // the colour already on the slice as its start,
+                                    // and every step is drawn on the dial as it is
+                                    // taken - no OK button to hide the result behind.
+                                    let initial = custom.unwrap_or(seat.accent);
+                                    state.open_colour_panel(
+                                        seat.fingerprint.clone(),
+                                        initial,
+                                        (x, y),
+                                    );
+                                    // The whole page is repainted: the card floats
+                                    // above the picture, so nothing else is enough.
+                                    let _ = InvalidateRect(Some(hwnd), None, false);
+                                }
+                                3 => {
+                                    (*state.app).set_window_color(&seat.fingerprint, None);
+                                    state.preview = None;
+                                    let rect = state.layout.dial_preview;
+                                    let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                                    state.invalidate_dial_rows(hwnd);
+                                }
+                                6 => {
+                                    (*state.app).set_window_weight(&seat.fingerprint, None);
+                                    state.preview = None;
+                                    let rect = state.layout.dial_preview;
+                                    let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                                    state.invalidate_dial_rows(hwnd);
+                                }
+                                10 => {
+                                    // Renaming moved here from the plain click: a
+                                    // right-click menu lets the user rename without
+                                    // fighting the drag-to-swap gesture.
+                                    (*state.app)
+                                        .name_window_centered(&seat.fingerprint, hwnd);
+                                    state.invalidate_dial_rows(hwnd);
+                                }
+                                _ => {}
                             }
+                        }
                     }
+                }
+                LRESULT(0)
+            }
+            WM_TIMER if wp.0 == DIAL_POOL_TIMER => {
+                // The desk watch: compare the hwnds the picture is holding with
+                // the desktop's, and only when they differ pay for the re-read.
+                // A window that closed while the page was open leaves the rows
+                // and the picture now - the hotkey dial already did.
+                if state.section == SEC_DIAL {
+                    let live = shaiwin_platform_win::window::list_switchable(std::process::id());
+                    let fresh: Vec<isize> = {
+                        let mut hs: Vec<isize> =
+                            live.iter().map(|info| info.hwnd).collect();
+                        hs.sort_unstable();
+                        hs
+                    };
+                    let held: Vec<isize> = {
+                        // The rows hold every window the last refresh saw, not
+                        // only the seated ones - a window that left the dial is
+                        // as much a change as one that arrived.
+                        let mut hs: Vec<isize> =
+                            state.pool_all.iter().map(|row| row.hwnd).collect();
+                        hs.sort_unstable();
+                        hs
+                    };
+                    if fresh != held {
+                        state.refresh_dial_pool();
+                        let _ = InvalidateRect(Some(hwnd), None, false);
+                    }
+                } else {
+                    let _ = KillTimer(Some(hwnd), DIAL_POOL_TIMER);
                 }
                 LRESULT(0)
             }
@@ -5071,6 +6446,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // fresh one when it is next entered.
                 state.preview = None;
                 let _ = InvalidateRect(Some(hwnd), None, false);
+                LRESULT(0)
+            }
+            WM_WEIGHTS_CHANGED => {
+                // The sectors have new sizes but the desk has not changed: the
+                // picture is rebuilt from `preview_desk` at the next paint.
+                state.preview = None;
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                LRESULT(0)
+            }
+            WM_RADIUS_COMMIT => {
+                // Enter in the radius field. Posted rather than handled in the
+                // edit's own wndproc: `moved()` may raise a modal refusal, and
+                // the control must have finished drawing before that happens.
+                state.commit_radius();
                 LRESULT(0)
             }
             WM_ROWS_CHANGED => {
@@ -5219,6 +6608,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 LRESULT(0)
             }
             WM_DESTROY => {
+                let _ = KillTimer(Some(hwnd), DIAL_POOL_TIMER);
                 SETTINGS_HWND.store(0, Ordering::Relaxed);
                 (*state.app).settings_window_closed();
                 for font in state.fonts.iter() {
@@ -5234,6 +6624,71 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             _ => DefWindowProcW(hwnd, msg, wp, lp),
         }
+    }
+}
+
+// --- the radius field ------------------------------------------------------------
+
+/// The radius edit's own two keys: Enter commits and Ctrl+A selects all. The
+/// IME, the clipboard, the caret and every other key stay the stock control's.
+struct RadiusEdit {
+    old: WNDPROC,
+    panel: HWND,
+}
+
+unsafe extern "system" fn radius_edit_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+) -> LRESULT {
+    unsafe {
+        let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut RadiusEdit;
+        if ptr.is_null() {
+            return DefWindowProcW(hwnd, msg, wp, lp);
+        }
+        let edit = &*ptr;
+        if msg == WM_NCDESTROY {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            let boxed = Box::from_raw(ptr);
+            return CallWindowProcW(boxed.old, hwnd, msg, wp, lp);
+        }
+        // Before spending Enter on a default button, IsDialogMessageW asks the
+        // focused control (with the MSG in `lp`) whether it wants that key.
+        // The panel deliberately has no default button, so without this claim
+        // Enter can be consumed in the message loop and never reach the
+        // WM_KEYDOWN branch below. Claim this one message only: Tab and the
+        // arrows still belong to the dialog manager.
+        if msg == WM_GETDLGCODE && lp.0 != 0 {
+            let probe = &*(lp.0 as *const MSG);
+            if probe.message == WM_KEYDOWN && probe.wParam.0 == VK_RETURN.0 as usize {
+                let normal = CallWindowProcW(edit.old, hwnd, msg, wp, lp);
+                return LRESULT(normal.0 | DLGC_WANTMESSAGE as isize);
+            }
+        }
+        if msg == WM_KEYDOWN && wp.0 == VK_RETURN.0 as usize {
+            let _ = PostMessageW(Some(edit.panel), WM_RADIUS_COMMIT, WPARAM(0), LPARAM(0));
+            return LRESULT(0);
+        }
+        // A single-line EDIT does not answer Ctrl+A itself: the 'A' would be
+        // typed over the selection instead. WM_CHAR's 0x01 is swallowed too,
+        // or the stock control would put the caret back at one end after the
+        // EM_SETSEL below.
+        if msg == WM_KEYDOWN && wp.0 == 'A' as usize && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+            let _ = SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+            let _ = SendMessageW(
+                hwnd,
+                EM_SCROLLCARET,
+                Some(WPARAM(0)),
+                Some(LPARAM(0)),
+            );
+            return LRESULT(0);
+        }
+        if msg == WM_CHAR && wp.0 == 1 && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+            let _ = SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+            return LRESULT(0);
+        }
+        CallWindowProcW(edit.old, hwnd, msg, wp, lp)
     }
 }
 

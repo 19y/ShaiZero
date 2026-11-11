@@ -37,8 +37,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Controls::{EM_SETCUEBANNER, WM_MOUSELEAVE};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetFocus, ReleaseCapture, SetActiveWindow, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE,
-    TRACKMOUSEEVENT, VK_ESCAPE, VK_RETURN,
+    GetFocus, GetKeyState, ReleaseCapture, SetActiveWindow, SetCapture, SetFocus, TrackMouseEvent,
+    TME_LEAVE, TRACKMOUSEEVENT, VK_CONTROL, VK_ESCAPE, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, GetCaretBlinkTime,
@@ -48,7 +48,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowPos, SetWindowTextW, ShowWindow, CS_DROPSHADOW, EN_CHANGE, GWLP_USERDATA,
     GWLP_WNDPROC, HICON, HWND_TOPMOST, IDC_ARROW, IDC_HAND, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN,
+    WM_CHAR, WM_CTLCOLOREDIT, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN,
     WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_SETFOCUS, WM_SETFONT,
     WM_TIMER, WNDCLASSEXW, WNDPROC,
     WS_CHILD, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_TABSTOP, WS_VISIBLE,
@@ -924,6 +924,23 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 }
                 return LRESULT(0);
             }
+            // The classic single-line edit control has no select-all of its
+            // own, so Ctrl+A would only type an "a" over the selection. 'A'
+            // with Ctrl down selects everything instead; anything else - plain
+            // letters, Ctrl+C/X/V, the IME - is the stock control's.
+            if wp.0 == 'A' as usize && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+                let _ = SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+                let _ = SendMessageW(hwnd, EM_SCROLLCARET, Some(WPARAM(0)), Some(LPARAM(0)));
+                return LRESULT(0);
+            }
+        }
+        // TranslateMessage has already queued the WM_CHAR for Ctrl+A by the
+        // time the key-down reaches this proc, so swallow the control byte
+        // (0x01) too: the stock edit would otherwise answer it after our
+        // EM_SETSEL and put the caret back at one end.
+        if msg == WM_CHAR && wp.0 == 1 && GetKeyState(VK_CONTROL.0 as i32) < 0 {
+            let _ = SendMessageW(hwnd, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+            return LRESULT(0);
         }
 
         // Everything else - the selection, the IME, the clipboard, the text -

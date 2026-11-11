@@ -96,6 +96,23 @@ impl Text {
         self.width_weight(text, px, FW_NORMAL.0 as i32)
     }
 
+    /// How tall a line set at `px` comes out, padding included. The height is
+    /// the cell's, not the em size: a glyph's ascenders and descenders reach
+    /// past `px`, and a caller that guessed from the size drew a title onto the
+    /// icon below it.
+    pub fn height(&mut self, px: f32) -> Option<f32> {
+        self.height_weight(px, FW_NORMAL.0 as i32)
+    }
+
+    pub fn height_bold(&mut self, px: f32) -> Option<f32> {
+        self.height_weight(px, FW_SEMIBOLD.0 as i32)
+    }
+
+    fn height_weight(&mut self, px: f32, weight: i32) -> Option<f32> {
+        let cell = self.font(px, weight)?;
+        Some(cell.max(1) as f32 + PAD as f32 * 2.0)
+    }
+
     pub fn width_bold(&mut self, text: &str, px: f32) -> Option<f32> {
         self.width_weight(text, px, FW_SEMIBOLD.0 as i32)
     }

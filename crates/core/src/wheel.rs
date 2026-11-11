@@ -39,10 +39,12 @@ pub const RING_GAP: f32 = 3.0;
 /// instead of competing with it.
 pub const OUTER_BAND_RATIO: f32 = 0.52;
 /// Smallest and largest radius the slider offers, in logical pixels. At 110 the
-/// inner ring's sectors are still a finger's width apart; past 220 the wheel
-/// covers the window the user is trying to look at.
+/// inner ring's sectors are still a finger's width apart. The ceiling is only a
+/// sanity bound for a hand-edited file: the live dial scales itself down to fit
+/// the work area of the monitor it opens on, so a radius past the screen is
+/// shown as large as the screen allows rather than clipped or refused.
 pub const RADIUS_MIN: f32 = 110.0;
-pub const RADIUS_MAX: f32 = 220.0;
+pub const RADIUS_MAX: f32 = 720.0;
 pub const RADIUS_DEFAULT: f32 = 150.0;
 /// How much of the radius is hub. Below 0.25 there is no room for the preview
 /// text; above 0.65 the sectors are a thin crown and the drag from sector to
@@ -233,7 +235,9 @@ impl Dial {
     /// (most recent first). Three claims, in this order: a pin takes the free
     /// sector nearest the direction it remembers, a favourite takes a place on
     /// the inner ring before anything undirected does, and the rest fill the
-    /// sectors that are left, innermost ring first, clockwise from 12.
+    /// sectors that are left, innermost ring first, clockwise from 12. The
+    /// favourite's claim is only exercised when the inner ring cannot hold
+    /// everybody; while it can, `entries`' own order is the arrangement.
     ///
     /// A pin is a direction and never a sector number, which is what keeps
     /// "my mail is at 6 o'clock" true while the window count changes underneath
@@ -308,33 +312,51 @@ impl Dial {
             }
         }
 
-        // The favourites, oldest first, each on the inner ring while the inner
-        // ring has a sector left. Sorted by the rank rather than taken in list
-        // order because the list arrives in recency order; when they run out of
-        // inner ring they spill outwards in the same order rather than dropping off
-        // the dial, because "on the wheel" is the stronger half of the promise.
-        let mut preferred: Vec<(usize, usize)> = entries
+        // The favourites claim the inner ring before the crowd does, and they
+        // spill outwards only when the ring has no sector left - "on the wheel"
+        // is the stronger half of the promise. That reservation is only worth
+        // what it costs when there is a crowd: while every window still fits on
+        // the inner ring, the remembered plan alone decides who sits where.
+        // Seating the favourites first in that case let their list rank outrank
+        // the plan, so a drag between a favourite and an ordinary window could
+        // not be written down - the builder kept putting the favourite back in
+        // front of it, and the sector never moved.
+        let unpinned: Vec<&Entry> = entries.iter().filter(|e| e.pinned_at.is_none()).collect();
+        let inner_free = slots
             .iter()
-            .filter(|e| e.pinned_at.is_none())
-            .filter_map(|e| e.favourite_at.map(|rank| (rank, e.id)))
-            .collect();
-        preferred.sort_by_key(|(rank, _)| *rank);
-        for (_, id) in preferred {
-            let inner = slots
-                .iter()
-                .position(|s| s.ring == 0 && s.occupant.is_none());
-            if let Some(i) = inner.or_else(|| slots.iter().position(|s| s.occupant.is_none())) {
-                slots[i].occupant = Some(id);
+            .filter(|s| s.ring == 0 && s.occupant.is_none())
+            .count();
+        if unpinned.len() <= inner_free {
+            for e in unpinned {
+                if let Some(i) = slots.iter().position(|s| s.occupant.is_none()) {
+                    slots[i].occupant = Some(e.id);
+                }
             }
-        }
+        } else {
+            // The favourites, oldest first, each on the inner ring while the
+            // inner ring has a sector left. Sorted by the rank rather than taken
+            // in list order because the list arrives in recency order; when they
+            // run out of inner ring they spill outwards in the same order rather
+            // than dropping off the dial.
+            let mut preferred: Vec<(usize, usize)> = unpinned
+                .iter()
+                .filter_map(|e| e.favourite_at.map(|rank| (rank, e.id)))
+                .collect();
+            preferred.sort_by_key(|(rank, _)| *rank);
+            for (_, id) in preferred {
+                let inner = slots
+                    .iter()
+                    .position(|s| s.ring == 0 && s.occupant.is_none());
+                if let Some(i) = inner.or_else(|| slots.iter().position(|s| s.occupant.is_none())) {
+                    slots[i].occupant = Some(id);
+                }
+            }
 
-        let mut free = slots.iter_mut().filter(|s| s.occupant.is_none());
-        for e in entries
-            .iter()
-            .filter(|e| e.pinned_at.is_none() && e.favourite_at.is_none())
-        {
-            if let Some(s) = free.next() {
-                s.occupant = Some(e.id);
+            let mut free = slots.iter_mut().filter(|s| s.occupant.is_none());
+            for e in unpinned.iter().filter(|e| e.favourite_at.is_none()) {
+                if let Some(s) = free.next() {
+                    s.occupant = Some(e.id);
+                }
             }
         }
 
@@ -702,19 +724,20 @@ mod tests {
     }
 
     #[test]
-    fn favourites_hold_the_order_they_were_added_in_not_the_order_they_were_used() {
-        // The list is most-recent-first, so `3` was used longest ago; `favs` says it
-        // was added first, and the inner ring is its.
+    fn while_everything_fits_on_the_inner_ring_the_plan_decides_where_a_favourite_sits() {
+        // Four windows and four sectors: there is no crowd for a favourite to be
+        // protected from, so the remembered plan is the arrangement even when the
+        // favourites list names `3` first. A drag between a favourite and an
+        // ordinary window has to be writable down, and only the plan can say it.
         let d = Dial::build(&seated(&[0, 1, 2, 3], &[3, 1]));
-        assert_eq!(d.find(3).map(|s| (s.ring, s.pos)), Some((0, 0)));
+        assert_eq!(d.find(0).map(|s| (s.ring, s.pos)), Some((0, 0)));
         assert_eq!(d.find(1).map(|s| (s.ring, s.pos)), Some((0, 1)));
-        assert_eq!(d.find(0).map(|s| (s.ring, s.pos)), Some((0, 2)));
-        assert_eq!(d.find(2).map(|s| (s.ring, s.pos)), Some((0, 3)));
-        // Using the second favourite does not swap the two: the rank is the list's,
-        // not this frame's.
-        let d = Dial::build(&seated(&[1, 0, 2, 3], &[3, 1]));
-        assert_eq!(d.find(3).map(|s| (s.ring, s.pos)), Some((0, 0)));
-        assert_eq!(d.find(1).map(|s| (s.ring, s.pos)), Some((0, 1)));
+        assert_eq!(d.find(2).map(|s| (s.ring, s.pos)), Some((0, 2)));
+        assert_eq!(d.find(3).map(|s| (s.ring, s.pos)), Some((0, 3)));
+        // The same plan still seats the same way frame after frame; only the
+        // crowded case below leans on the rank.
+        let d = Dial::build(&seated(&[0, 1, 2, 3], &[1, 3]));
+        assert_eq!(d.find(3).map(|s| (s.ring, s.pos)), Some((0, 3)));
     }
 
     #[test]

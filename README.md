@@ -82,7 +82,7 @@
 ```powershell
 cargo build -p shaiwin --release     # -> target\release\ShaiZero.exe
 cargo run -p shaiwin                 # 开发构建
-cargo test --workspace               # 137 个单元测试（app 80 + core 45 + platform 12）
+cargo test --workspace               # 140 个单元测试（app 83 + core 45 + platform 12）
 ```
 
 打 tag 推送会触发 `.github/workflows/release.yml` 自动测试、构建、打包并建 release。本地打包用 `scripts\package.ps1`。

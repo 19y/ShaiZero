@@ -26,6 +26,20 @@ pub struct Painter {
     icons: HashMap<isize, Option<Pixmap>>,
 }
 
+/// One sector's mark, already measured and placed: what to write, how big, and
+/// the two anchors the icon and the title are centred on.
+struct Mark {
+    /// The title as up to two lines: one line when it fits, a word-broken pair
+    /// when the sector has the height for it, elided on the last line.
+    name: Option<Vec<String>>,
+    name_px: f32,
+    name_h: f32,
+    glyph_px: f32,
+    icon_px: f32,
+    icon_at: (f32, f32),
+    name_at: (f32, f32),
+}
+
 impl Painter {
     pub fn new() -> Painter {
         Painter {
@@ -62,6 +76,240 @@ impl Painter {
             })
         });
         pix.as_ref()
+    }
+
+    /// Where one sector's icon and title go.
+    ///
+    /// Every mark is measured against its own sector: the width of the band it
+    /// sits in and the length of its arc. A sector that was given a larger share
+    /// draws larger, its neighbour keeps its own size, and no sector can grow
+    /// past the walls around it when the dial is turned up. The caps are the most
+    /// a mark is ever drawn at, whatever the radius.
+    ///
+    /// The title is drawn upright, so on the sides of the dial its own direction
+    /// runs across the sector instead of along it; the arc alone was a false
+    /// measure there, and a long title left its sector - the neighbour drawn
+    /// after it then painted its fill over the words and put its icon on top of
+    /// them. The room a title is given is therefore what the sector can hold
+    /// horizontally at the spot the title sits on, and a sector with no such room
+    /// shows its icon alone.
+    fn mark(
+        &mut self,
+        view: &WheelView,
+        sec: &WheelSector,
+        s: f32,
+        rr: f32,
+        bw: f32,
+        cx: f32,
+        cy: f32,
+        mid: f32,
+        a0: f32,
+        a1: f32,
+    ) -> Mark {
+        let arc = sec.span.to_radians() * rr;
+        let n = view.sectors.len().max(1) as f32;
+        let rel = (sec.span / (360.0 / n)).clamp(0.8, 1.6);
+        let glyph_px = (bw * 0.30 * rel)
+            .clamp(11.0 * s, 24.0 * s)
+            .min(bw * 0.32)
+            .min(arc * 0.45);
+        let name_px = (bw * 0.13 * rel).clamp(8.0 * s, 13.0 * s).min(arc * 0.30);
+        let gap = 2.0 * s;
+        let name_h = self
+            .text
+            .as_mut()
+            .and_then(|text| text.height(name_px))
+            .unwrap_or(name_px * 1.35);
+        let (level, upright) = (mid.cos().abs(), mid.sin().abs());
+        // How much width a title band has, for a block of the given height.
+        // It is a pure function of the geometry, so the one-line and two-line
+        // answers can be compared before anything is laid out. Reserving two
+        // lines for *every* title would pull short labels in towards the icon
+        // and elide words that used to fit; a title only pays for a second line
+        // once it has proved it needs one.
+        let measure_room = |block_h: f32| {
+            let with_name = (bw * 0.38 * rel)
+                .clamp(14.0 * s, 28.0 * s)
+                .min(arc * 0.55)
+                .min((bw * 0.92 - block_h - gap).max(10.0 * s));
+            // The icon sits inwards and the title outwards; the rim a title
+            // grows from is the icon's outer edge in the case where a title is
+            // shown, and that size is already settled above.
+            let outer = rr + with_name / 2.0 - gap / 2.0 - block_h / 2.0;
+            // The title grows outwards from the icon instead of being centred
+            // on the ring's mid radius: a level line runs along the radius at 3
+            // and 9 o'clock, and a centred title reached back across the icon
+            // there. How far a title may run is what the room past the icon can
+            // hold in the direction it is written - all of its width on the
+            // sides of the dial, none of it at the top and bottom, where the
+            // arc is the only wall.
+            let out = (rr + bw / 2.0 - 6.0 * s - outer - gap / 2.0).max(0.0);
+            let radial = if level > 0.15 {
+                ((out - block_h * upright) / level).max(0.0)
+            } else {
+                f32::INFINITY
+            };
+            let arc_room = (arc - 10.0 * s).max(10.0);
+            let guess =
+                outer + gap / 2.0 + 0.5 * radial.min(arc_room) * level + block_h / 2.0 * upright;
+            let across = (wedge_half_x(
+                cx,
+                cy,
+                a0,
+                a1,
+                (cx + mid.cos() * guess, cy + mid.sin() * guess),
+            ) * 2.0
+                - 8.0 * s)
+                .max(0.0);
+            let room = arc_room.min(radial).min(across);
+            (with_name, out, room)
+        };
+        // Pass one: the original one-line band. Pass two is only asked for when
+        // the title does not fit it *and* the sector has the height for a
+        // second line.
+        let (_, one_out, one_room) = measure_room(name_h);
+        let show_one = one_room > 26.0 * s && one_out > name_h;
+        let needs_wrap = show_one && self.text_width(&sec.name, name_px) > one_room;
+        let (room, show_name, max_lines) = if needs_wrap {
+            let (_, two_out, two_room) = measure_room(name_h * 2.0);
+            if two_out > name_h * 2.0 && two_room > 26.0 * s {
+                (two_room, true, 2)
+            } else {
+                (one_room, show_one, 1)
+            }
+        } else {
+            (one_room, show_one, 1)
+        };
+        let name = if show_name {
+            Some(self.wrap_name(&sec.name, name_px, room, max_lines))
+        } else {
+            None
+        };
+        // The name block is as tall as its lines, and the stack (icon plus
+        // block) has to hold all of it: a second line grows the stack rather
+        // than spilling past the sector. The icon is sized from that same
+        // height, so a wrapped title never borrows room from its own icon.
+        let block_h = name
+            .as_ref()
+            .map(|lines| lines.len() as f32 * name_h)
+            .unwrap_or(0.0);
+        let with_name = measure_room(block_h.max(name_h)).0;
+        let (icon_px, stack) = if name.is_some() {
+            (with_name, with_name + gap + block_h)
+        } else {
+            let alone = (bw * 0.50 * rel)
+                .clamp(14.0 * s, 38.0 * s)
+                .min(arc * 0.55)
+                .min(bw * 0.92);
+            (alone, alone)
+        };
+        // The fallback is a letter, and a letter set at the mark's size is
+        // taller than the square the icon would have filled; shrink it to the
+        // square rather than let it run over the title below.
+        let glyph_h = self
+            .text
+            .as_mut()
+            .and_then(|text| text.height_bold(glyph_px))
+            .unwrap_or(glyph_px * 1.35);
+        let glyph_px = if glyph_h > icon_px {
+            glyph_px * icon_px / glyph_h
+        } else {
+            glyph_px
+        };
+        let icon_r = rr - stack / 2.0 + icon_px / 2.0;
+        // The block's reach is its widest line, and its height is every line:
+        // both decide where the title can sit without leaving its sector.
+        let written = name
+            .as_ref()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .map(|line| self.text_width(line, name_px))
+                    .fold(0.0_f32, f32::max)
+            })
+            .unwrap_or(0.0);
+        let name_r =
+            icon_r + icon_px / 2.0 + gap / 2.0 + written / 2.0 * level + block_h / 2.0 * upright;
+        Mark {
+            name,
+            name_px,
+            name_h,
+            glyph_px,
+            icon_px,
+            icon_at: (cx + mid.cos() * icon_r, cy + mid.sin() * icon_r),
+            name_at: (cx + mid.cos() * name_r, cy + mid.sin() * name_r),
+        }
+    }
+
+    /// The title in the room its sector has, as up to two lines. One line is
+    /// the old answer when it fits; a wider title is broken at a space when one
+    /// is nearby (CJK titles, which have none, break by character) and the
+    /// second line is elided when even two lines are not enough.
+    fn wrap_name(&mut self, text: &str, px: f32, max_w: f32, max_lines: usize) -> Vec<String> {
+        if self.text_width(text, px) <= max_w || max_lines < 2 {
+            return vec![self.elide(text, px, max_w)];
+        }
+        let mut width = 0.0;
+        let mut last_space: Option<usize> = None;
+        let mut consumed = 0usize;
+        for (at, ch) in text.char_indices() {
+            let advance = self.text_width(ch.encode_utf8(&mut [0u8; 4]), px);
+            if width + advance > max_w {
+                break;
+            }
+            if ch == ' ' {
+                last_space = Some(at);
+            }
+            width += advance;
+            consumed = at + ch.len_utf8();
+        }
+        if consumed == 0 {
+            return vec![self.elide(text, px, max_w)];
+        }
+        let (head_end, rest_start) = match last_space {
+            // Break after the space only when it leaves a real first line.
+            Some(at) if at > 0 => (at, at + 1),
+            _ => (consumed, consumed),
+        };
+        let head = text[..head_end].to_string();
+        let rest = &text[rest_start..];
+        if rest.is_empty() {
+            return vec![head];
+        }
+        vec![head, self.elide(rest, px, max_w)]
+    }
+
+    /// The title block, one or two lines, centred as a whole on `at`. Each line
+    /// keeps its own width, so a short second line stays centred under a long
+    /// first one; `line_h` is the cell height `mark` measured the lines in.
+    /// `offset` and `alpha` are the theme's own answer - the neon look lays the
+    /// same block down four times at a pixel's offset before the real one.
+    fn draw_name(
+        &mut self,
+        canvas: &mut Pixmap,
+        lines: &[String],
+        px: f32,
+        line_h: f32,
+        rgb: (u8, u8, u8),
+        at: (f32, f32),
+        offset: (f32, f32),
+        alpha: f32,
+    ) {
+        let (nx, ny) = at;
+        let count = lines.len() as f32;
+        for (i, line) in lines.iter().enumerate() {
+            let Some(p) = self.label(line, px, rgb) else {
+                continue;
+            };
+            let cy = ny + (i as f32 - (count - 1.0) * 0.5) * line_h;
+            blit_alpha(
+                canvas,
+                p,
+                nx - p.width() as f32 / 2.0 + offset.0,
+                cy - p.height() as f32 / 2.0 + offset.1,
+                alpha,
+            );
+        }
     }
 
     fn elide(&mut self, text: &str, px: f32, max_w: f32) -> String {
@@ -407,7 +655,7 @@ impl Painter {
             return;
         }
         canvas.fill(Color::TRANSPARENT);
-        let s = view.scale.max(0.1);
+        let s = view.scale.max(0.001);
         let cx = canvas.width() as f32 / 2.0;
         let cy = canvas.height() as f32 / 2.0;
         let outer = view
@@ -572,7 +820,7 @@ impl Painter {
     /// The moving part: every sector at its current angle, and the hub on top.
     /// Drawn onto a canvas that already holds [`compose_still_into`]'s pixels.
     pub fn compose_seats_into(&mut self, canvas: &mut Pixmap, view: &WheelView) {
-        let s = view.scale.max(0.1);
+        let s = view.scale.max(0.001);
         let cx = canvas.width() as f32 / 2.0;
         let cy = canvas.height() as f32 / 2.0;
         if view.theme == 4 {
@@ -601,7 +849,7 @@ impl Painter {
     /// draw them in both halves and stack the alpha twice.
     fn compose_neon_base_into(&mut self, canvas: &mut Pixmap, view: &WheelView) {
         canvas.fill(Color::TRANSPARENT);
-        let s = view.scale.max(0.1);
+        let s = view.scale.max(0.001);
         let cx = canvas.width() as f32 / 2.0;
         let cy = canvas.height() as f32 / 2.0;
         let outer = view
@@ -739,7 +987,7 @@ impl Painter {
     /// the layering comes from the cards and their shadows, not from light.
     fn compose_paper_base_into(&mut self, canvas: &mut Pixmap, view: &WheelView) {
         canvas.fill(Color::TRANSPARENT);
-        let s = view.scale.max(0.1);
+        let s = view.scale.max(0.001);
         let cx = canvas.width() as f32 / 2.0;
         let cy = canvas.height() as f32 / 2.0;
         let outer = view
@@ -977,11 +1225,11 @@ impl Painter {
 
         // The name. A sector's own height sets the type size, which is what makes
         // a six-window dial readable and a forty-window one simply a ring of
-        // initials.
-        let px = ((hi - lo) * 0.30).clamp(12.0 * s, 22.0 * s);
-        let arc = sec.span.to_radians() * rr;
-        let room = (arc - 10.0 * s).max(10.0);
-        let show_name = arc > 50.0 * s;
+        // initials. Sectors grown by a weight preset get a proportionally larger
+        // glyph and icon so the eye doesn't land on a big slice and then squint
+        // at the letter in it - the size stays honest to the claim the slice
+        // makes.
+        let bw = (hi - lo).max(1.0);
         let (ink, sub_ink) = match view.theme {
             0 => {
                 let base = if sec.hot {
@@ -1012,24 +1260,16 @@ impl Painter {
                 (base, WHEEL_INK_SUB)
             }
         };
-        let glyph = sec.glyph.clone();
-        let name = if show_name {
-            Some(self.elide(&sec.name, 10.5 * s, room))
-        } else {
-            None
-        };
-        let gx = cx + mid.cos() * rr;
-        let gy = cy + mid.sin() * rr;
-        let dy = if name.is_some() { -px * 0.48 } else { 0.0 };
-        // The window's own icon when one can be read: the application is named
-        // by the picture it puts in the taskbar, and the letter is the fallback
-        // for a window that has none. The icon is centred on the same spot the
-        // letter was, at a size that fits the band it sits in.
-        let icon_px = if name.is_some() {
-            (px * 1.55).clamp(16.0 * s, 34.0 * s)
-        } else {
-            ((hi - lo) * 0.56).clamp(16.0 * s, 38.0 * s)
-        };
+        let glyph = first_mark(&sec.glyph);
+        let Mark {
+            name,
+            name_px,
+            name_h,
+            glyph_px: px,
+            icon_px,
+            icon_at: (gx, gy),
+            name_at,
+        } = self.mark(view, sec, s, rr, bw, cx, cy, mid, a0, a1);
         let mut drew_icon = false;
         if sec.hwnd != 0 {
             if let Some(icon) = self.icon(sec.hwnd) {
@@ -1047,7 +1287,7 @@ impl Painter {
                 let sy = icon_px / icon.height() as f32;
                 let at = Transform::from_scale(sx, sy).post_translate(
                     (gx - icon_px / 2.0).round(),
-                    (gy + dy - icon_px / 2.0).round(),
+                    (gy - icon_px / 2.0).round(),
                 );
                 canvas.draw_pixmap(0, 0, icon.as_ref(), &paint, at, None);
                 drew_icon = true;
@@ -1059,21 +1299,22 @@ impl Painter {
                     canvas,
                     p,
                     gx - p.width() as f32 / 2.0,
-                    gy + dy - p.height() as f32 / 2.0,
+                    gy - p.height() as f32 / 2.0,
                     a,
                 );
             }
         }
-        if let Some(text) = &name {
-            if let Some(p) = self.label(text, 10.5 * s, sub_ink) {
-                blit_alpha(
-                    canvas,
-                    p,
-                    gx - p.width() as f32 / 2.0,
-                    gy + px * 0.58 - p.height() as f32 / 2.0,
-                    a * 0.92,
-                );
-            }
+        if let Some(lines) = &name {
+            self.draw_name(
+                canvas,
+                lines,
+                name_px,
+                name_h,
+                sub_ink,
+                name_at,
+                (0.0, 0.0),
+                a * 0.92,
+            );
         }
 
         if sec.pinned {
@@ -1210,24 +1451,17 @@ impl Painter {
             canvas.stroke_path(&path, &solid(150, 225, 255, 0.55), &stroke, ts, None);
         }
 
-        let px = ((hi - lo) * 0.30).clamp(12.0 * s, 22.0 * s);
-        let arc = sec.span.to_radians() * rr;
-        let room = (arc - 10.0 * s).max(10.0);
-        let show_name = arc > 50.0 * s;
-        let glyph = sec.glyph.clone();
-        let name = if show_name {
-            Some(self.elide(&sec.name, 10.5 * s, room))
-        } else {
-            None
-        };
-        let gx = cx + mid.cos() * rr;
-        let gy = cy + mid.sin() * rr;
-        let dy = if name.is_some() { -px * 0.48 } else { 0.0 };
-        let icon_px = if name.is_some() {
-            (px * 1.55).clamp(16.0 * s, 34.0 * s)
-        } else {
-            ((hi - lo) * 0.56).clamp(16.0 * s, 38.0 * s)
-        };
+        let bw = (hi - lo).max(1.0);
+        let Mark {
+            name,
+            name_px,
+            name_h,
+            glyph_px: px,
+            icon_px,
+            icon_at: (gx, gy),
+            name_at,
+        } = self.mark(view, sec, s, rr, bw, cx, cy, mid, a0, a1);
+        let glyph = first_mark(&sec.glyph);
         let ink = if sec.hot {
             (255, 255, 255)
         } else {
@@ -1246,7 +1480,7 @@ impl Painter {
                 let sy = icon_px / icon.height() as f32;
                 let at = Transform::from_scale(sx, sy).post_translate(
                     (gx - icon_px / 2.0).round(),
-                    (gy + dy - icon_px / 2.0).round(),
+                    (gy - icon_px / 2.0).round(),
                 );
                 canvas.draw_pixmap(0, 0, icon.as_ref(), &paint, at, None);
                 drew_icon = true;
@@ -1267,7 +1501,7 @@ impl Painter {
                         canvas,
                         p,
                         gx - p.width() as f32 / 2.0 + ox * s,
-                        gy + dy - p.height() as f32 / 2.0 + oy * s,
+                        gy - p.height() as f32 / 2.0 + oy * s,
                         if sec.hot { 0.35 } else { 0.18 } * a,
                     );
                 }
@@ -1277,37 +1511,39 @@ impl Painter {
                     canvas,
                     p,
                     gx - p.width() as f32 / 2.0,
-                    gy + dy - p.height() as f32 / 2.0,
+                    gy - p.height() as f32 / 2.0,
                     a,
                 );
             }
         }
-        if let Some(text) = &name {
+        if let Some(lines) = &name {
             let name_offsets: &[(f32, f32)] = if sec.hot {
                 &[(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
             } else {
                 &[(0.0, -1.0)]
             };
             for (ox, oy) in name_offsets {
-                if let Some(p) = self.label(text, 10.5 * s, (br, bg, bb)) {
-                    blit_alpha(
-                        canvas,
-                        p,
-                        gx - p.width() as f32 / 2.0 + ox * s,
-                        gy + px * 0.58 - p.height() as f32 / 2.0 + oy * s,
-                        (if sec.hot { 0.22 } else { 0.10 }) * a,
-                    );
-                }
-            }
-            if let Some(p) = self.label(text, 10.5 * s, sub) {
-                blit_alpha(
+                self.draw_name(
                     canvas,
-                    p,
-                    gx - p.width() as f32 / 2.0,
-                    gy + px * 0.58 - p.height() as f32 / 2.0,
-                    a * 0.92,
+                    lines,
+                    name_px,
+                    name_h,
+                    (br, bg, bb),
+                    name_at,
+                    (ox * s, oy * s),
+                    (if sec.hot { 0.22 } else { 0.10 }) * a,
                 );
             }
+            self.draw_name(
+                canvas,
+                lines,
+                name_px,
+                name_h,
+                sub,
+                name_at,
+                (0.0, 0.0),
+                a * 0.92,
+            );
         }
 
         if sec.pinned {
@@ -1431,24 +1667,17 @@ impl Painter {
             canvas.stroke_path(&path, &solid(43, 38, 32, 0.45), &stroke, ts, None);
         }
 
-        let px = ((hi - lo) * 0.30).clamp(12.0 * s, 22.0 * s);
-        let arc = sec.span.to_radians() * rr;
-        let room = (arc - 10.0 * s).max(10.0);
-        let show_name = arc > 50.0 * s;
-        let glyph = sec.glyph.clone();
-        let name = if show_name {
-            Some(self.elide(&sec.name, 10.5 * s, room))
-        } else {
-            None
-        };
-        let gx = cx + mid.cos() * rr;
-        let gy = cy + mid.sin() * rr;
-        let dy = if name.is_some() { -px * 0.48 } else { 0.0 };
-        let icon_px = if name.is_some() {
-            (px * 1.55).clamp(16.0 * s, 34.0 * s)
-        } else {
-            ((hi - lo) * 0.56).clamp(16.0 * s, 38.0 * s)
-        };
+        let bw = (hi - lo).max(1.0);
+        let Mark {
+            name,
+            name_px,
+            name_h,
+            glyph_px: px,
+            icon_px,
+            icon_at: (gx, gy),
+            name_at,
+        } = self.mark(view, sec, s, rr, bw, cx, cy, mid, a0, a1);
+        let glyph = first_mark(&sec.glyph);
         let ink = if sec.hot { (30, 26, 21) } else { PAPER_INK };
         let sub = PAPER_SUB;
         let mut drew_icon = false;
@@ -1463,7 +1692,7 @@ impl Painter {
                 let sy = icon_px / icon.height() as f32;
                 let at = Transform::from_scale(sx, sy).post_translate(
                     (gx - icon_px / 2.0).round(),
-                    (gy + dy - icon_px / 2.0).round(),
+                    (gy - icon_px / 2.0).round(),
                 );
                 canvas.draw_pixmap(0, 0, icon.as_ref(), &paint, at, None);
                 drew_icon = true;
@@ -1475,21 +1704,22 @@ impl Painter {
                     canvas,
                     p,
                     gx - p.width() as f32 / 2.0,
-                    gy + dy - p.height() as f32 / 2.0,
+                    gy - p.height() as f32 / 2.0,
                     a,
                 );
             }
         }
-        if let Some(text) = &name {
-            if let Some(p) = self.label(text, 10.5 * s, sub) {
-                blit_alpha(
-                    canvas,
-                    p,
-                    gx - p.width() as f32 / 2.0,
-                    gy + px * 0.58 - p.height() as f32 / 2.0,
-                    a * 0.92,
-                );
-            }
+        if let Some(lines) = &name {
+            self.draw_name(
+                canvas,
+                lines,
+                name_px,
+                name_h,
+                sub,
+                name_at,
+                (0.0, 0.0),
+                a * 0.92,
+            );
         }
 
         if sec.pinned {
@@ -1596,8 +1826,8 @@ impl Painter {
 
         if let Some(pre) = &view.preview {
             let big = hub >= HUB_BIG * s;
-            let px1 = (hub * 0.19).clamp(10.0 * s, 13.5 * s);
-            let px2 = (hub * 0.15).clamp(9.0 * s, 11.0 * s);
+            let px1 = (hub * 0.19).clamp(10.0 * s, 22.0 * s);
+            let px2 = (hub * 0.15).clamp(9.0 * s, 17.0 * s);
             let mut ny = cy - hub * 0.06;
             let mut y2 = ny + px1 * 0.75 + px2 * 0.45;
             let Rgb(r, g, b) = pre.accent;
@@ -1763,6 +1993,51 @@ pub fn compose_veil_into(
         1.8,
         Transform::identity(),
     );
+}
+
+/// How far a horizontal line through `at` can run inside the wedge whose seams
+/// are the two angles, in pixels from `at` to the nearer seam. The seams are
+/// rays from the dial's centre; a seam that runs the same way as the line bounds
+/// nothing, and neither does one that points away from it.
+fn wedge_half_x(cx: f32, cy: f32, a0: f32, a1: f32, at: (f32, f32)) -> f32 {
+    let (px, py) = at;
+    let (mut left, mut right) = (f32::NEG_INFINITY, f32::INFINITY);
+    for angle in [a0, a1] {
+        let (sin, cos) = (angle.sin(), angle.cos());
+        if sin.abs() < 1e-4 {
+            continue;
+        }
+        let t = (py - cy) / sin;
+        if t <= 0.0 {
+            continue;
+        }
+        let x = cx + t * cos;
+        if x < px {
+            left = left.max(x);
+        } else {
+            right = right.min(x);
+        }
+    }
+    let half = (px - left).min(right - px);
+    if half.is_finite() {
+        half.max(0.0)
+    } else {
+        // Both seams run level with the line: only the arc can bound the text.
+        f32::INFINITY
+    }
+}
+
+/// The mark a sector draws when its window has no icon: the first character of
+/// the name the sector was given. A tag of several words used to arrive as a
+/// line of type twice the width of the slice, which read as an overflowing
+/// title rather than as a mark.
+fn first_mark(text: &str) -> String {
+    let mut chars = text.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(first), Some(second), None) => format!("{first}{second}"),
+        (Some(first), _, _) => first.to_string(),
+        _ => String::new(),
+    }
 }
 
 /// The overshoot the opening is asked for: past 1 on the way to 1.
