@@ -192,6 +192,9 @@ const DIAL_THEME_NAME: [&str; DIAL_THEMES] = [
     "dial_theme_paper",
     "dial_theme_site",
 ];
+/// The order the filmstrip shows them in, by theme id: Aurora is the one the
+/// dial ships with, so it is the first frame the eye lands on.
+const DIAL_THEME_ORDER: [usize; DIAL_THEMES] = [6, 0, 1, 2, 3, 4, 5];
 /// How loud the sectors are. Only the sector colour moves; the filmstrip in the
 /// picture card shows the same theme at the chosen loudness.
 const DIAL_ACCENT_NAME: [&str; DIAL_ACCENT_CELLS] = [
@@ -403,8 +406,8 @@ const SEC_COUNT: usize = 4;
 /// The one section [`App`] can ask for by name: the dial's shortcut opens the
 /// page on the dial itself, which is also where a plain open lands.
 pub const SECTION_DIAL: usize = SEC_DIAL;
-/// The most cards any one section lays out. 轮盘 holds a preview and eight rows.
-const MAX_CARDS: usize = 9;
+/// The most cards any one section lays out. 轮盘 holds a preview and six rows.
+const MAX_CARDS: usize = 7;
 /// The card in 语言 that holds the row of names rather than one control.
 const LANG_GRID_ROW: usize = 0;
 /// The dial's picture is the one thing on the page that grows with the window.
@@ -472,15 +475,12 @@ const DIAL_PREVIEW_H: f32 = 300.0;
 const DIAL_PREVIEW_ROW: usize = 0;
 const DIAL_ACCENT_ROW: usize = 1;
 const DIAL_RADIUS_ROW: usize = 2;
-const DIAL_SEAM_ROW: usize = 3;
-const DIAL_ANIM_ROW: usize = 4;
+const DIAL_ANIM_ROW: usize = 3;
 /// How many windows make the cut, and the order the ones that do arrive in.
-const DIAL_LIMIT_ROW: usize = 5;
-const DIAL_ORDER_ROW: usize = 6;
+const DIAL_LIMIT_ROW: usize = 4;
+const DIAL_ORDER_ROW: usize = 5;
 /// Where a picked window lands, under the order it was picked in.
-const DIAL_POSITION_ROW: usize = 7;
-/// Degrees clockwise the whole dial is turned, so it sits where the hand expects.
-const DIAL_ROTATE_ROW: usize = 8;
+const DIAL_POSITION_ROW: usize = 6;
 
 /// The navigation's words. `settings_group_keys` is the name the old page already
 /// gave the shortcuts; the others are new because the page came apart into
@@ -531,10 +531,6 @@ const CARDS: [&[Card]; SEC_COUNT] = [
             note: "settings_dial_radius_note",
         },
         Card {
-            title: "settings_dial_seam_short",
-            note: "settings_dial_seam_note",
-        },
-        Card {
             title: "settings_dial_anim_short",
             note: "settings_dial_anim_note",
         },
@@ -549,10 +545,6 @@ const CARDS: [&[Card]; SEC_COUNT] = [
         Card {
             title: "settings_dial_position_short",
             note: "settings_dial_position_note",
-        },
-        Card {
-            title: "settings_dial_rotate_short",
-            note: "settings_dial_rotate_note",
         },
     ],
     &[
@@ -850,13 +842,12 @@ struct State {
     /// with two arrows about. It is carried in and written back untouched, so
     /// applying a row cannot quietly reset a hand-edited file.
     wheel_dead: f32,
-    /// The dial's painted look: the named theme, how loud the accents are, the
-    /// seam and the arrival time. Edited in 轮盘 and read by the preview on the
-    /// same page.
+    /// The dial's painted look: the named theme, how loud the accents are, and
+    /// the arrival time. Edited in 轮盘 and read by the preview on the same page.
     wheel_theme: u32,
     wheel_accent: u32,
-    wheel_seam: f32,
-    /// Degrees clockwise the whole dial is turned.
+    /// Degrees clockwise the whole dial is turned. Only the drag around the
+    /// picture moves it; the key that carries it to the app is the draft.
     wheel_rotate: f32,
     colour_scheme: u32,
     wheel_open_ms: u32,
@@ -870,7 +861,7 @@ struct State {
     /// 轮盘's cells and steppers, made once with the window like every other
     /// control, so switching sections only moves their visibility.
     dial_cells: [HWND; DIAL_CELLS],
-    dial_steps: [HWND; 8],
+    dial_steps: [HWND; 4],
     /// The first few windows, mirrored beside the picture so one can be dragged
     /// onto a sector without leaving the page.
     dial_pool: Vec<Row>,
@@ -944,6 +935,10 @@ struct State {
     /// A press on a sector that may become a drag. Lives beside `dial_press`
     /// because a press that grabbed a sector never becomes the rename click.
     seat_drag: Option<SeatDrag>,
+    /// A press in the blank ring past the rim, being dragged to turn the whole
+    /// dial. The number is the pointer's bearing at the press less the turn at
+    /// that moment, so the first move does not jump the dial under the hand.
+    dial_rotate: Option<f32>,
     /// A press on a seam anchor, being dragged to widen one sector at the cost
     /// of its neighbour. None when nothing is being resized.
     anchor_drag: Option<AnchorDrag>,
@@ -1468,7 +1463,7 @@ struct DialPreview {
     /// a key without the seats would keep showing a sector that has left the
     /// dial, because the limit and the desk size can stay the same while a row
     /// moves between the two sections.
-    key: (u32, u32, u32, u32, u32, u32, u32, u32, usize, u64),
+    key: (u32, u32, u32, u32, u32, u32, u32, usize, u64),
 }
 
 /// The filmstrip's seven pictures: one theme each, at the strip's size. A slot is
@@ -1515,8 +1510,8 @@ struct Layout {
     /// rows, so the strip reads as a band rather than six cards.
     dial_param_card: RECT,
     dial_cells: [RECT; DIAL_CELLS],
-    dial_steps: [RECT; 8],
-    dial_values: [RECT; 4],
+    dial_steps: [RECT; 4],
+    dial_values: [RECT; 2],
     /// The radius edit inside its frame: `dial_values[0]` with the hairline
     /// border's inset taken off every edge, so the frame the page paints stays
     /// visible around the child instead of being covered by it.
@@ -1792,8 +1787,10 @@ fn dial_param_metrics(card_l: f32, card_r: f32, s: f32) -> ParamStrip {
     // page that may fold, and it folds downwards, not into a scroll.
     let wide = ctrl_w >= DIAL_ROW_WIDE * s;
     let group_rows = if wide { 1 } else { 2 };
-    let group_units = 6.0 + 2.0 * group_rows as f32;
-    let group_gaps = 7.0 + 2.0 * (group_rows as f32 - 1.0);
+    // Six named rows, one of which is the animation group: it takes one line
+    // when the column is wide and two when it folds.
+    let group_units = 5.0 + group_rows as f32;
+    let group_gaps = 4.0 + group_rows as f32;
     let h = DIAL_PARAM_PAD * 2.0 * s
         + group_units * DIAL_ROW_H * s
         + group_gaps * DIAL_ROW_GAP * s;
@@ -1813,13 +1810,13 @@ fn dial_param_metrics(card_l: f32, card_r: f32, s: f32) -> ParamStrip {
     }
 }
 
-/// Lay the strip's eight rows on its card. `top` is the card's own top, so the
+/// Lay the strip's six rows on its card. `top` is the card's own top, so the
 /// caller decides whether the strip hangs under the list or under the glass.
 fn dial_params(l: &mut Layout, m: &ParamStrip, top: f32, s: f32) {
     l.dial_param_card = band(m.card_l, m.card_r, top, m.h);
     let row_step = DIAL_ROW_H + DIAL_ROW_GAP;
     let mut py = top + DIAL_PARAM_PAD * s;
-    for at in 1..=DIAL_ROTATE_ROW {
+    for at in 1..=DIAL_POSITION_ROW {
         let rows_here = if at == DIAL_ANIM_ROW { m.group_rows } else { 1 };
         let h = rows_here as f32 * DIAL_ROW_H * s
             + (rows_here - 1) as f32 * DIAL_ROW_GAP * s;
@@ -1869,13 +1866,11 @@ fn dial_params(l: &mut Layout, m: &ParamStrip, top: f32, s: f32) {
                 }
             }
             _ => {
-                // radius, spacing and the limit: two arrows around the number
-                // they move, in the same band the cells use.
+                // radius and the limit: two arrows around the number they move,
+                // in the same band the cells use.
                 let (value, first) = match at {
                     DIAL_RADIUS_ROW => (0, 0),
-                    DIAL_SEAM_ROW => (1, 2),
-                    DIAL_LIMIT_ROW => (2, 4),
-                    _ => (3, 6),
+                    _ => (1, 2),
                 };
                 let cy = cell_row(0);
                 l.dial_steps[first] = band(m.ctrl_x0, m.ctrl_x0 + m.step_w, cy, FIELD_H * s);
@@ -2407,7 +2402,6 @@ pub fn open(
             wheel_dead: settings.wheel_dead,
             wheel_theme: settings.wheel_theme,
             wheel_accent: settings.wheel_accent,
-            wheel_seam: settings.wheel_seam,
             wheel_rotate: settings.wheel_rotate,
             colour_scheme: settings.colour_scheme,
             wheel_open_ms: settings.wheel_open_ms,
@@ -2415,7 +2409,7 @@ pub fn open(
             dial_order: settings.dial_order,
             activate_pos: settings.activate_pos,
             dial_cells: [HWND::default(); DIAL_CELLS],
-            dial_steps: [HWND::default(); 8],
+            dial_steps: [HWND::default(); 4],
             dial_pool: Vec::new(),
             dial_search: HWND::default(),
             radius_edit: HWND::default(),
@@ -2436,6 +2430,7 @@ pub fn open(
             theme_switch_at: None,
             dial_press: None,
             seat_drag: None,
+            dial_rotate: None,
             anchor_drag: None,
             colour_panel: None,
             dial_toast: None,
@@ -2671,7 +2666,7 @@ impl State {
                 self.captions.push((cell, *key));
                 self.slots.push((SEC_DIAL, cell));
             }
-            for (at, glyph) in ["−", "+", "−", "+", "−", "+", "−", "+"].iter().enumerate() {
+            for (at, glyph) in ["−", "+", "−", "+"].iter().enumerate() {
                 let step = self.button(
                     parent,
                     glyph,
@@ -3240,26 +3235,10 @@ impl State {
                     self.radius_frame(hdc, l.dial_values[0], self.radius_focused);
                     self.text(
                         hdc,
-                        &format!("{:.0} px", self.wheel_seam),
-                        F_TITLE,
-                        INK,
-                        l.dial_values[1],
-                        DT_VCENTER | DT_CENTER,
-                    );
-                    self.text(
-                        hdc,
                         &format!("{}", self.wheel_limit),
                         F_TITLE,
                         INK,
-                        l.dial_values[2],
-                        DT_VCENTER | DT_CENTER,
-                    );
-                    self.text(
-                        hdc,
-                        &format!("{:.0}°", self.wheel_rotate),
-                        F_TITLE,
-                        INK,
-                        l.dial_values[3],
+                        l.dial_values[1],
                         DT_VCENTER | DT_CENTER,
                     );
                     // The search field is a system EDIT so typing and IME come
@@ -3672,13 +3651,20 @@ impl State {
                 return;
             };
             let side = thumbs.side as i32;
-            for (i, cell) in l.dial_themes.iter().take(DIAL_THEMES).enumerate() {
+            // The strip is in display order; the pictures and the names are
+            // keyed by theme id, so the two are zipped rather than indexed.
+            for (cell, theme) in l
+                .dial_themes
+                .iter()
+                .take(DIAL_THEMES)
+                .zip(DIAL_THEME_ORDER)
+            {
                 let cell = *cell;
                 if cell.right <= cell.left || cell.bottom <= cell.top {
                     continue;
                 }
                 self.card(hdc, cell);
-                if let Some(pixmap) = thumbs.pixmaps[i].as_ref() {
+                if let Some(pixmap) = thumbs.pixmaps[theme].as_ref() {
                     let tx = cell.left + (cell.right - cell.left - side) / 2;
                     let ty = cell.top + ((2.0 * self.scale).round() as i32);
                     blit(
@@ -3690,7 +3676,7 @@ impl State {
                         pixmap.height(),
                     );
                 }
-                let selected = self.wheel_theme as usize == i;
+                let selected = self.wheel_theme as usize == theme;
                 if selected {
                     let pen = CreatePen(
                         PS_SOLID,
@@ -3725,7 +3711,7 @@ impl State {
                 }
                 self.text(
                     hdc,
-                    t(DIAL_THEME_NAME[i]),
+                    t(DIAL_THEME_NAME[theme]),
                     F_NOTE,
                     if selected { INK } else { MUTED },
                     name,
@@ -4064,7 +4050,7 @@ impl State {
         self.moved();
     }
 
-    /// The two steppers: dial radius, then the air between sectors. Both change
+    /// The two steppers: dial radius, then the windows the dial seats. Both change
     /// what the picture beside them holds, so the picture is thrown away and made
     /// again on the next paint.
     unsafe fn step_dial(&mut self, at: usize) {
@@ -4082,30 +4068,20 @@ impl State {
                     // Every pair is minus first, plus second - the same order
                     // the two buttons are laid out in.
                     let d: i64 = if at % 2 == 0 { -1 } else { 1 };
-                    if at >= 6 {
-                        self.wheel_rotate =
-                            (self.wheel_rotate + d as f32 * 5.0).rem_euclid(360.0);
-                        let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[3]), false);
-                    } else if at >= 4 {
-                        self.wheel_limit = (self.wheel_limit as i64 + d).clamp(
-                            settings::WHEEL_LIMIT_MIN as i64,
-                            settings::WHEEL_LIMIT_MAX as i64,
-                        ) as u32;
-                        seats_changed = true;
-                        let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[2]), false);
-                        // The sentence explains what the number means for the
-                        // windows the user bound by hand, so it has to be as new
-                        // as the number itself.
-                        let _ = InvalidateRect(
-                            Some(self.hwnd),
-                            Some(&l.note[DIAL_LIMIT_ROW]),
-                            false,
-                        );
-                    } else {
-                        self.wheel_seam =
-                            (self.wheel_seam + d as f32).clamp(0.0, settings::WHEEL_SEAM_MAX);
-                        let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[1]), false);
-                    }
+                    self.wheel_limit = (self.wheel_limit as i64 + d).clamp(
+                        settings::WHEEL_LIMIT_MIN as i64,
+                        settings::WHEEL_LIMIT_MAX as i64,
+                    ) as u32;
+                    seats_changed = true;
+                    let _ = InvalidateRect(Some(self.hwnd), Some(&l.dial_values[1]), false);
+                    // The sentence explains what the number means for the
+                    // windows the user bound by hand, so it has to be as new
+                    // as the number itself.
+                    let _ = InvalidateRect(
+                        Some(self.hwnd),
+                        Some(&l.note[DIAL_LIMIT_ROW]),
+                        false,
+                    );
                 }
             }
             self.preview = None;
@@ -4278,7 +4254,6 @@ impl State {
         let mut settings = (*self.app).applied_settings();
         settings.wheel_theme = self.wheel_theme;
         settings.wheel_accent = self.wheel_accent;
-        settings.wheel_seam = self.wheel_seam;
         settings.wheel_rotate = self.wheel_rotate;
         settings.colour_scheme = self.colour_scheme;
         settings.wheel_radius = self.wheel_radius;
@@ -4334,7 +4309,6 @@ impl State {
             self.wheel_theme,
             self.wheel_accent,
             self.wheel_radius.to_bits(),
-            self.wheel_seam.to_bits(),
             self.wheel_rotate.to_bits(),
             self.wheel_open_ms,
             self.wheel_limit,
@@ -4421,8 +4395,6 @@ impl State {
         let started = Instant::now();
         let mut settings = (*self.app).applied_settings();
         settings.wheel_accent = self.wheel_accent;
-        settings.wheel_seam = self.wheel_seam;
-        settings.wheel_rotate = self.wheel_rotate;
         settings.wheel_radius = self.wheel_radius;
         settings.wheel_dead = self.wheel_dead;
         settings.wheel_open_ms = self.wheel_open_ms;
@@ -5141,7 +5113,6 @@ impl State {
             trigger_button: self.trigger_button,
             wheel_theme: self.wheel_theme,
             wheel_accent: self.wheel_accent,
-            wheel_seam: self.wheel_seam,
             wheel_rotate: self.wheel_rotate,
             colour_scheme: self.colour_scheme,
             wheel_open_ms: self.wheel_open_ms,
@@ -5162,12 +5133,11 @@ impl State {
         self.trigger_button = s.trigger_button;
         self.trigger_notice = None;
         self.wheel_radius = s.wheel_radius;
-        self.wheel_seam = s.wheel_seam;
-        self.wheel_rotate = s.wheel_rotate;
         self.set_radius_text();
         self.wheel_dead = s.wheel_dead;
         self.wheel_theme = s.wheel_theme;
         self.wheel_accent = s.wheel_accent;
+        self.wheel_rotate = s.wheel_rotate;
         self.colour_scheme = s.colour_scheme;
         self.wheel_open_ms = s.wheel_open_ms;
         // The limit is part of what an apply either took or refused. Leaving it
@@ -5267,18 +5237,14 @@ impl State {
         }
     }
 
-    /// Which of the eight dial arrows have room to move: floor first, ceiling
-    /// second, for the four rows they belong to.
+    /// Which of the four dial arrows have room to move: floor first, ceiling
+    /// second, for the two rows they belong to.
     unsafe fn refresh_steppers(&self) {
         let room = [
             self.wheel_radius > RADIUS_MIN,
             self.wheel_radius < RADIUS_MAX,
-            self.wheel_seam > 0.0,
-            self.wheel_seam < settings::WHEEL_SEAM_MAX,
             self.wheel_limit > settings::WHEEL_LIMIT_MIN,
             self.wheel_limit < settings::WHEEL_LIMIT_MAX,
-            true,
-            true,
         ];
         for (at, hwnd) in self.dial_steps.iter().enumerate() {
             if let Some(on) = room.get(at) {
@@ -5843,6 +5809,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 if state.section == SEC_DIAL {
                     let x = (lp.0 as i16) as i32;
                     let y = ((lp.0 >> 16) as i16) as i32;
+                    // The turn drag: the picture follows the pointer's bearing
+                    // around the centre, and is thrown away so the next paint
+                    // draws it at the new angle.
+                    if let Some(grab) = state.dial_rotate {
+                        let pv = state.layout.dial_preview;
+                        let cx = pv.left as f32 + (pv.right - pv.left) as f32 / 2.0;
+                        let cy = pv.top as f32 + (pv.bottom - pv.top) as f32 / 2.0;
+                        let dx = x as f32 - cx;
+                        let dy = y as f32 - cy;
+                        let bearing = (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0);
+                        state.wheel_rotate = (bearing - grab).rem_euclid(360.0);
+                        state.preview = None;
+                        let rect = state.layout.dial_preview;
+                        let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                    }
                     // An anchor drag resizes the two neighbouring sectors live:
                     // every mouse move nudges both spans and the disc repaints
                     // with the new weights. It is handled before the sector
@@ -5977,7 +5958,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // is cancelled rather than left waiting for a release it will
                 // never see. Seat swap drags and anchor resize drags both fall
                 // here, so both are torn down cleanly.
-                let torn = state.seat_drag.take().is_some() || state.anchor_drag.take().is_some();
+                let torn = state.seat_drag.take().is_some()
+                    || state.anchor_drag.take().is_some()
+                    || state.dial_rotate.take().is_some();
                 if torn {
                     state.preview = None;
                     let rect = state.layout.dial_preview;
@@ -6030,13 +6013,44 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // The filmstrip is painted by this window, so a press on a
                     // thumbnail arrives here rather than at a child. It is a
                     // choice on the way down: no preview step, no OK button.
-                    for at in 0..DIAL_THEMES {
-                        let cell = state.layout.dial_themes[at];
+                    for (at, (cell, theme)) in state
+                        .layout
+                        .dial_themes
+                        .iter()
+                        .take(DIAL_THEMES)
+                        .zip(DIAL_THEME_ORDER)
+                        .enumerate()
+                    {
+                        let cell = *cell;
                         if x >= cell.left && x < cell.right && y >= cell.top && y < cell.bottom {
                             state.dial_press = None;
-                            state.choose_theme(at as u32);
+                            state.choose_theme(theme as u32);
                             crate::log!("dial strip: press={at} x={x} y={y}");
                             return LRESULT(0);
+                        }
+                    }
+                    // The blank ring past the rim, and the four corners, are the
+                    // dial's handle: dragging there turns the whole picture. It
+                    // is the page's own answer to "where do I turn the wheel" -
+                    // the turn happens where the user can see it happen.
+                    if let Some(preview) = state.preview.as_ref() {
+                        let pv = state.layout.dial_preview;
+                        if x >= pv.left && x < pv.right && y >= pv.top && y < pv.bottom {
+                            let half = (pv.right - pv.left) as f32 / 2.0;
+                            let cx = pv.left as f32 + half;
+                            let cy = pv.top as f32 + (pv.bottom - pv.top) as f32 / 2.0;
+                            let dx = x as f32 - cx;
+                            let dy = y as f32 - cy;
+                            let rim = half - shaiwin_core::wheel::PAD * preview.scale;
+                            if dx * dx + dy * dy > (rim + 2.0 * state.scale).powi(2) {
+                                let bearing =
+                                    (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0);
+                                state.dial_rotate =
+                                    Some((bearing - state.wheel_rotate).rem_euclid(360.0));
+                                state.dial_press = None;
+                                let _ = SetCapture(hwnd);
+                                return LRESULT(0);
+                            }
                         }
                     }
                     // The press point is the click's own address. A drag that
@@ -6131,6 +6145,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 if state.section == SEC_DIAL {
                     let x = (lp.0 as i16) as i32;
                     let y = ((lp.0 >> 16) as i16) as i32;
+                    // The turn drag ends here. The angle has been on the picture
+                    // since the first move, so the only work left is to let go
+                    // and write the number the way any other row writes its own.
+                    if state.dial_rotate.take().is_some() {
+                        let _ = ReleaseCapture();
+                        state.preview = None;
+                        let rect = state.layout.dial_preview;
+                        let _ = InvalidateRect(Some(hwnd), Some(&rect), false);
+                        state.moved();
+                        return LRESULT(0);
+                    }
                     // An anchor drag ends here: the live weights are already
                     // set on every mouse move, so the only cleanup is dropping
                     // the drag state and releasing the capture.

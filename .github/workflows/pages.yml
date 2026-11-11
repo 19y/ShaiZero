@@ -32,7 +32,7 @@ jobs:
         run: |
           mkdir -p _site/assets/site
           cp index.html robots.txt .nojekyll _site/
-          cp assets/site/donate-qr.png _site/assets/site/
+          cp assets/site/donate-qr.png assets/site/shaiwin.ico assets/site/shaiwin.png _site/assets/site/
 
       # 仓库的 Pages 已设为 GitHub Actions 发布，直接上传静态文件。
       - uses: actions/upload-pages-artifact@v3

@@ -1151,11 +1151,11 @@ impl Painter {
                     vec![
                         GradientStop::new(
                             0.0,
-                            Color::from_rgba8(18, 22, 32, (0.86 * appear * 255.0) as u8),
+                            Color::from_rgba8(18, 22, 32, (0.10 * appear * 255.0) as u8),
                         ),
                         GradientStop::new(
                             1.0,
-                            Color::from_rgba8(10, 12, 20, (0.95 * appear * 255.0) as u8),
+                            Color::from_rgba8(10, 12, 20, (0.14 * appear * 255.0) as u8),
                         ),
                     ],
                     SpreadMode::Pad,
@@ -1281,13 +1281,14 @@ impl Painter {
                     (0.74, 0.54)
                 }
             }
-            // Site: translucent panels, the hot one lit by cyan at a quarter
-            // strength, exactly the page's `rgba(0,229,255,0.24)`.
+            // Site: translucent panels at the page's own `rgba(18,22,32,0.78)`,
+            // and a hot one at `rgba(0,229,255,0.24)` - lit, and therefore more
+            // transparent than its neighbours, not less.
             6 => {
                 if sec.hot {
-                    (0.26, 0.20)
+                    (0.22, 0.16)
                 } else {
-                    (0.80, 0.74)
+                    (0.78, 0.72)
                 }
             }
             _ => {
@@ -1322,6 +1323,19 @@ impl Painter {
                 None,
             );
         }
+        // A lit slice used to lean out towards the pointer; now that it stays
+        // exactly where it is, the themes whose highlight was mostly that lean
+        // need a wash of their own or the choice is invisible.
+        if sec.hot && matches!(view.theme, 2 | 3) {
+            let sheen = if view.theme == 2 { 0.16 } else { 0.14 };
+            canvas.fill_path(
+                &path,
+                &solid(255, 255, 255, sheen * a),
+                FillRule::Winding,
+                ts,
+                None,
+            );
+        }
         // Neon: two wide, faint strokes under the rim read as light escaping the
         // slice - a layered window cannot blur, so the halo is drawn in rings.
         // The site switches its highlight on with the same cyan bloom.
@@ -1341,8 +1355,8 @@ impl Painter {
                 if sec.hot { 2.4 } else { 1.2 },
             ),
             3 => (
-                if sec.hot { 0.98 } else { 0.62 },
-                if sec.hot { 1.8 } else { 1.1 },
+                if sec.hot { 0.88 } else { 0.55 },
+                if sec.hot { 1.8 } else { 1.4 },
             ),
             // Site: hairline white between panels, a cyan edge on the hot one.
             6 => (
@@ -1364,6 +1378,11 @@ impl Painter {
                 (255, 255, 255)
             };
             stroke_path(canvas, &path, solid(rr, rg, rb, rim_a), rim_w * s, ts);
+        } else if view.theme == 3 {
+            // Card: the slices meet with no air between them, so the edge is the
+            // only thing that says where one ends. It is drawn in ink rather than
+            // in the slice's own colour, which made the line disappear into it.
+            stroke_path(canvas, &path, solid(58, 50, 40, rim_a), rim_w * s, ts);
         } else {
             stroke_path(canvas, &path, solid(r, g, b, rim_a), rim_w * s, ts);
         }
@@ -1541,8 +1560,13 @@ impl Painter {
         };
         let Rgb(r, g, b) = sec.accent;
         // A brighter version of the sector's own colour: the glow around the
-        // tube, never the tube itself.
-        let bright = mix_rgb(sec.accent, Rgb::new(255, 255, 255), 0.42);
+        // tube, never the tube itself. The lit one goes most of the way to white
+        // so the choice reads at a glance, not only as a wider halo.
+        let bright = mix_rgb(
+            sec.accent,
+            Rgb::new(255, 255, 255),
+            if sec.hot { 0.70 } else { 0.42 },
+        );
         let Rgb(br, bg, bb) = bright;
 
         // Light in the seam: wide, faint strokes that spill out of the slice.
@@ -1555,7 +1579,7 @@ impl Painter {
             }
         }
 
-        let (inner_a, outer_a) = if sec.hot { (0.78, 1.0) } else { (0.58, 0.96) };
+        let (inner_a, outer_a) = if sec.hot { (0.88, 1.0) } else { (0.58, 0.96) };
         if let Some(shader) = RadialGradient::new(
             Point::from_xy(cx, cy),
             lo,
@@ -1582,6 +1606,17 @@ impl Painter {
         }
         // Inner glow: a lit band inside the outer edge and a dimmer one inside
         // the hub edge, so the tube is bright on both walls.
+        if sec.hot {
+            // The tube itself is washed towards its own light, so the hot slice
+            // is brighter than its neighbours and not merely haloed by them.
+            canvas.fill_path(
+                &path,
+                &solid(br, bg, bb, 0.20 * a),
+                FillRule::Winding,
+                ts,
+                None,
+            );
+        }
         if let Some(band_path) = sector_path(cx, cy, hi - 3.5 * s, hi - 0.6 * s, a0, a1) {
             canvas.fill_path(
                 &band_path,
@@ -1767,22 +1802,28 @@ impl Painter {
             return;
         };
         let paper = Rgb::new(248, 245, 238);
-        let tint = mix_rgb(sec.accent, paper, 0.55);
+        // The lit card is the same accent mixed further towards the sheet: it
+        // reads as the one lit slice, not as a slightly stronger shadow.
+        let tint = mix_rgb(
+            sec.accent,
+            paper,
+            if sec.hot { 0.72 } else { 0.55 },
+        );
         let Rgb(r, g, b) = tint;
         let edge = mix_rgb(sec.accent, Rgb::new(43, 38, 32), 0.55);
         let Rgb(er, eg, eb) = edge;
 
         // The card's shadow under it, then the paper itself.
-        let lift = if sec.hot { 3.2 } else { 2.5 };
+        let lift = if sec.hot { 4.0 } else { 2.5 };
         let ts_shadow = ts.post_translate(0.0, lift * s);
         canvas.fill_path(
             &path,
-            &solid(60, 50, 35, if sec.hot { 0.24 } else { 0.18 } * a),
+            &solid(60, 50, 35, if sec.hot { 0.28 } else { 0.18 } * a),
             FillRule::Winding,
             ts_shadow,
             None,
         );
-        let (inner_a, outer_a) = if sec.hot { (1.0, 0.95) } else { (0.94, 0.86) };
+        let (inner_a, outer_a) = if sec.hot { (1.0, 1.0) } else { (0.94, 0.86) };
         if let Some(shader) = RadialGradient::new(
             Point::from_xy(cx, cy),
             lo,
@@ -1807,6 +1848,17 @@ impl Painter {
                 None,
             );
         }
+        if sec.hot {
+            // A wash of its own light, because the paper is already bright and
+            // alpha alone would not separate the lit card from its neighbours.
+            canvas.fill_path(
+                &path,
+                &solid(255, 255, 255, 0.22 * a),
+                FillRule::Winding,
+                ts,
+                None,
+            );
+        }
         if let Some(band_path) = sector_path(cx, cy, lo + 1.4 * s, lo + 2.4 * s, a0, a1) {
             canvas.fill_path(
                 &band_path,
@@ -1819,8 +1871,8 @@ impl Painter {
         stroke_path(
             canvas,
             &path,
-            solid(er, eg, eb, 0.95 * a),
-            if sec.hot { 1.2 } else { 1.0 } * s,
+            solid(er, eg, eb, if sec.hot { 1.0 } else { 0.80 } * a),
+            if sec.hot { 1.7 } else { 1.0 } * s,
             ts,
         );
         if sec.current {
@@ -1965,7 +2017,7 @@ impl Painter {
             // Site: the page's dark hub with a cyan ring when choosing or
             // cancelling, and a faint white hairline while idle.
             6 => (
-                (18, 22, 32, 0.92),
+                (18, 22, 32, 0.90),
                 (0, 229, 255, 0.95),
                 (0, 229, 255, 0.65),
                 (255, 255, 255, 0.28),

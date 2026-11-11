@@ -483,7 +483,7 @@ table! {
     // the only place the mouse's part in editing is written down.
     "settings_nav_dial" => "Wheel" | "轮盘",
     "settings_dial_preview" => "Preview" | "轮盘预览",
-    "settings_dial_preview_note" => "Click to name a slice, right-click to take it off, drag to place it" | "单击扇区改名，右键移出，拖动换位",
+    "settings_dial_preview_note" => "Click to name a slice, right-click to take it off, drag to place it, drag the blank ring outside to turn the wheel" | "单击扇区改名，右键移出，拖动换位；拖外侧留白处旋转整个轮盘",
     "settings_dial_theme" => "Theme" | "主题",
     // The compact strip beside the window list has room for a word, not a
     // sentence: these are the short names the page paints in its left column.
@@ -494,7 +494,7 @@ table! {
     "settings_dial_anim_short" => "Motion" | "动画",
     "settings_dial_limit_short" => "Count" | "上限",
     "settings_dial_order_short" => "Order" | "顺序",
-    "settings_dial_theme_note" => "Seven whole looks: outline, glass, glow, card, neon, paper, aurora" | "七套完整的形态：描边、玻璃、微光、卡片、霓虹、纸卡、极光",
+    "settings_dial_theme_note" => "Seven whole looks: aurora, outline, glass, glow, card, neon, paper" | "七套完整的形态：极光、描边、玻璃、微光、卡片、霓虹、纸卡",
     "settings_dial_accent_note" => "Structure stays with the theme; this only tints the sectors" | "结构随主题锁定，这里只调扇区颜色",
     "settings_dial_radius" => "Size" | "大小",
     "settings_dial_radius_note" => "How far the dial reaches" | "盘子张开多远",

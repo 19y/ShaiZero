@@ -67,13 +67,12 @@ pub const WHEEL_THEME_MAX: u32 = 6;
 pub const WHEEL_ACCENT_DEFAULT: u32 = 1;
 pub const WHEEL_ACCENT_MAX: u32 = 2;
 /// The dial ships with its sectors touching: the seam is the air between them,
-/// and zero is the flat, page-like look.
+/// and zero is the flat, page-like look. It is not a setting any more - the
+/// sectors always meet, and the value is only kept so an older file still reads.
 pub const WHEEL_SEAM_DEFAULT: f32 = 0.0;
-pub const WHEEL_SEAM_MAX: f32 = 16.0;
 /// The whole dial can be turned so its first sector sits where the hand expects
 /// it; degrees clockwise from 12 o'clock.
 pub const WHEEL_ROTATE_DEFAULT: f32 = 0.0;
-pub const WHEEL_ROTATE_MAX: f32 = 359.0;
 pub const WHEEL_OPEN_MS_DEFAULT: u32 = 180;
 pub const WHEEL_OPEN_MS_MAX: u32 = 400;
 /// How many windows the dial draws. The wheel is a quick target, not a wall of
@@ -240,8 +239,11 @@ pub struct Settings {
     /// How loud the sectors are, 0 soft to 2 vivid. The structure of the theme -
     /// plate, seams, strokes, shadows - is not touched by it.
     pub wheel_accent: u32,
+    /// The air between sectors. Always zero - the dial's slices meet - and kept
+    /// only because the file still carries the line.
     pub wheel_seam: f32,
-    /// Degrees clockwise the whole dial is turned from its built-in bearing.
+    /// Degrees clockwise the whole dial is turned from its built-in bearing,
+    /// written by dragging outside the rim.
     pub wheel_rotate: f32,
     /// The chosen rarity-colour preset. 0 = off (auto palette), 1 = Hawkeye
     /// red/gold/violet/blue/green, 2 = Classic cobalt/teal/violet/orange/rose.
@@ -437,13 +439,14 @@ pub struct Draft {
     /// button (0 left, 1 right, 2 middle).
     pub trigger_vk: u32,
     pub trigger_button: u8,
-    /// The dial's named look, accent loudness, sector spacing and open animation.
-    /// The named look the renderer follows: 0 outline, 1 glass, 2 glow, 3 card,
-    /// 4 neon, 5 paper, 6 Aurora.
+    /// The dial's named look, accent loudness and open animation. The named look
+    /// the renderer follows: 0 outline, 1 glass, 2 glow, 3 card, 4 neon, 5 paper,
+    /// 6 Aurora.
     pub wheel_theme: u32,
     pub wheel_accent: u32,
-    pub wheel_seam: f32,
-    /// Degrees clockwise the whole dial is turned from its built-in bearing.
+    /// Degrees clockwise the whole dial is turned. It has no row on the page:
+    /// the picture's blank ring past the rim is the handle, and the page carries
+    /// the number only so that drag can be saved like any other change.
     pub wheel_rotate: f32,
     pub colour_scheme: u32,
     pub wheel_open_ms: u32,
@@ -519,7 +522,6 @@ impl Default for Draft {
             trigger_button: s.trigger_button,
             wheel_theme: s.wheel_theme,
             wheel_accent: s.wheel_accent,
-            wheel_seam: s.wheel_seam,
             wheel_rotate: s.wheel_rotate,
             colour_scheme: s.colour_scheme,
             wheel_open_ms: s.wheel_open_ms,
@@ -695,7 +697,9 @@ impl Settings {
         self.wheel_style = self.wheel_style.min(WHEEL_STYLE_MAX);
         self.wheel_theme = self.wheel_theme.min(WHEEL_THEME_MAX);
         self.wheel_accent = self.wheel_accent.min(WHEEL_ACCENT_MAX);
-        self.wheel_seam = clamp_seam(self.wheel_seam);
+        // The air between sectors was a setting once; the dial is one plate now,
+        // so a file that still carries a seam is read and put back to zero.
+        self.wheel_seam = WHEEL_SEAM_DEFAULT;
         self.wheel_rotate = clamp_rotation(self.wheel_rotate);
         self.colour_scheme = self
             .colour_scheme
@@ -1202,7 +1206,7 @@ fn apply_line(s: &mut Settings, key: &str, value: &str) -> bool {
                 0,
             );
         }
-        "wheel_seam" => s.wheel_seam = parse_wheel_seam(value),
+        "wheel_seam" => s.wheel_seam = WHEEL_SEAM_DEFAULT,
         "wheel_rotate" => s.wheel_rotate = parse_wheel_rotate(value),
         "wheel_open_ms" => {
             s.wheel_open_ms = parse_index(value, WHEEL_OPEN_MS_MAX, WHEEL_OPEN_MS_DEFAULT)
@@ -1296,20 +1300,12 @@ fn clamp_dead(value: f32) -> f32 {
     }
 }
 
-/// The air between sectors, in logical pixels. Nought is a solid disc; past the
-/// ceiling the wedge shrinks to nothing, so both ends are clamped rather than
-/// rejected - a hand-edited seam is still a seam.
-fn clamp_seam(value: f32) -> f32 {
-    if value.is_finite() {
-        value.clamp(0.0, WHEEL_SEAM_MAX)
-    } else {
-        WHEEL_SEAM_DEFAULT
-    }
-}
-
+/// The whole dial's turn, in degrees clockwise from 12 o'clock. Any finite
+/// number is folded into one revolution rather than rejected, because the mouse
+/// that moves it can cross either end of the scale.
 fn clamp_rotation(value: f32) -> f32 {
     if value.is_finite() {
-        value.clamp(0.0, WHEEL_ROTATE_MAX)
+        value.rem_euclid(360.0)
     } else {
         WHEEL_ROTATE_DEFAULT
     }
@@ -1445,16 +1441,6 @@ pub fn parse_wheel_radius(value: &str) -> f32 {
 /// something else and the shipped answer is the honest reading.
 pub fn parse_wheel_dead(value: &str) -> f32 {
     clamp_dead(read_number(value))
-}
-
-/// The air between sectors as the file states it, in logical pixels.
-pub fn parse_wheel_seam(value: &str) -> f32 {
-    let value = read_number(value);
-    if value.is_finite() {
-        value.clamp(0.0, WHEEL_SEAM_MAX)
-    } else {
-        WHEEL_SEAM_DEFAULT
-    }
 }
 
 /// The whole dial's turn as the file states it, in degrees clockwise.
