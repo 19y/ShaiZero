@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShaiZero — 指尖一转，窗口即达</title>
+<meta name="description" content="按住 Alt 在桌面任意位置按下鼠标左键，十扇窗在指针下绽放。单 exe、绿色免安装、无需管理员权限的 Windows 窗口轮盘切换器。">
+<meta name="theme-color" content="#050608">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ShaiZero — 指尖一转，窗口即达">
+<meta property="og:description" content="一个 Windows 窗口轮盘。按住 Alt + 左键，指针落在哪一格，松手，那个窗口就到前台。">
+<meta property="og:url" content="https://19y.github.io/ShaiZero/">
+<meta property="og:image" content="https://19y.github.io/ShaiZero/assets/site/usage.png">
+<meta property="og:site_name" content="ShaiZero">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ShaiZero — 指尖一转，窗口即达">
+<meta name="twitter:description" content="按住 Alt + 左键，十扇窗在指针下展开。单 exe、绿色免安装的 Windows 窗口轮盘切换器。">
+<meta name="twitter:image" content="https://19y.github.io/ShaiZero/assets/site/usage.png">
+<link rel="canonical" href="https://19y.github.io/ShaiZero/">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ShaiZero","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10 1809+, Windows 11","description":"按住 Alt 与鼠标左键呼出窗口轮盘，滑向扇区松手即可切换窗口。单 exe、绿色免安装、无需管理员权限。","url":"https://19y.github.io/ShaiZero/","downloadUrl":"https://github.com/19y/ShaiZero/releases/latest","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://github.com/19y/ShaiZero/blob/main/LICENSE","author":{"@type":"Person","name":"19y"}}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23050608'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%23252b33' stroke-width='2'/%3E%3Cpath d='M32 11a21 21 0 0 1 18.2 10.5' fill='none' stroke='%23E9B56A' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M32 11a21 21 0 0 0-18.2 10.5' fill='none' stroke='%234C8DFF' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M14.6 41.8A21 21 0 0 0 32 53' fill='none' stroke='%232ED3A0' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M49.4 41.8A21 21 0 0 1 32 53' fill='none' stroke='%23FF8AC2' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23E9B56A'/%3E%3C/svg%3E">
+<link rel="preload" href="assets/site/fonts/chakra-petch-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/site/fonts/chakra-petch-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site/site.css">
+</head>
+<body>
+
+<div class="atmos" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="progress" id="progress" aria-hidden="true"></div>
+
+<header class="site-head" id="siteHead">
+  <nav class="nav" aria-label="主导航">
+    <a class="brand" href="#top" aria-label="ShaiZero 首页">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="29" fill="none" stroke="rgba(242,237,228,.16)" stroke-width="1.5"/>
+        <path d="M32 5a27 27 0 0 1 23.4 13.5" fill="none" stroke="#E9B56A" stroke-width="4.4" stroke-linecap="round"/>
+        <path d="M32 5a27 27 0 0 0-23.4 13.5" fill="none" stroke="#4C8DFF" stroke-width="4.4" stroke-linecap="round"/>
+        <path d="M8.6 45.5A27 27 0 0 0 32 59" fill="none" stroke="#2ED3A0" stroke-width="4.4" stroke-linecap="round"/>
+        <path d="M55.4 45.5A27 27 0 0 1 32 59" fill="none" stroke="#FF8AC2" stroke-width="4.4" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="6.5" fill="#E9B56A"/>
+      </svg>
+      Shai<span class="z">Zero</span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">上手</a>
+      <a href="#forms">形态</a>
+      <a href="#control">界面</a>
+      <a href="#download">下载</a>
+    </div>
+    <div class="nav-cta">
+      <a class="ghost-link" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 0 0-2.06 12.66c.33.06.45-.14.45-.32v-1.1c-1.83.4-2.22-.79-2.22-.79-.3-.76-.73-.97-.73-.97-.6-.41.05-.4.05-.4.66.05 1.01.68 1.01.68.59 1.02 1.55.73 1.93.56.06-.43.23-.73.42-.9-1.47-.17-3.01-.74-3.01-3.28 0-.73.26-1.32.68-1.79-.07-.17-.3-.85.07-1.77 0 0 .55-.18 1.8.68a6.2 6.2 0 0 1 3.27 0c1.24-.86 1.79-.68 1.79-.68.37.92.14 1.6.07 1.77.42.47.68 1.06.68 1.79 0 2.55-1.55 3.11-3.02 3.27.24.21.45.62.45 1.25v1.85c0 .18.12.39.46.32A6.5 6.5 0 0 0 8 1.5Z"/></svg>
+        GitHub
+      </a>
+      <a class="btn primary sm" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        免费下载
+      </a>
+    </div>
+  </nav>
+</header>
+
+<main id="top">
+
+  <!-- ======================= HERO ======================= -->
+  <section class="hero" aria-labelledby="heroTitle">
+    <span class="hero-word" aria-hidden="true">ZERO</span>
+    <div class="wrap hero-inner">
+      <div class="hero-copy">
+        <div class="pill">
+          <span class="live"></span>
+          <span>Windows 10 / 11 · x64</span>
+          <span class="tag">v0.1.1</span>
+        </div>
+        <h1 id="heroTitle">
+          <span class="line">指尖一转</span>
+          <span class="line grad">窗口即达</span>
+        </h1>
+        <p class="lede">
+          按住 <kbd>Alt</kbd>，在桌面任意位置按下<b>鼠标左键</b>——<br>
+          十扇窗在指针下展开。滑向哪一格，松手，<br>
+          那个窗口就到前台。
+        </p>
+        <div class="hero-actions">
+          <a class="btn primary" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            下载 ShaiZero
+          </a>
+          <button class="btn" id="demoBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5 15.5 12 10 15.5z" fill="currentColor" stroke="none"/></svg>
+            看它转一圈
+          </button>
+        </div>
+        <div class="hero-meta">
+          <span>单个 exe</span><i></i>
+          <span>绿色免安装</span><i></i>
+          <span>无需管理员权限</span><span class="sep"></span>
+          <span>MIT + Commons Clause</span>
+        </div>
+      </div>
+
+      <div class="hero-stage" id="stage" aria-label="互动轮盘：按下鼠标左键，拖到扇区，松手切换">
+        <div class="orbit" aria-hidden="true"></div>
+        <div class="orbit b" aria-hidden="true"></div>
+        <canvas id="heroWheel"></canvas>
+        <span class="corner c1" aria-hidden="true"></span>
+        <span class="corner c2" aria-hidden="true"></span>
+        <span class="corner c3" aria-hidden="true"></span>
+        <span class="corner c4" aria-hidden="true"></span>
+
+        <div class="hud tl">
+          Window Dial / 01
+          <span class="hl">10 SEATS</span>
+        </div>
+        <div class="hud tr">
+          <span class="state" id="hudState">READY</span>
+          <span class="hl">ALT + LMB</span>
+        </div>
+        <div class="hud bl">
+          <b>就在这里试试</b>：按住左键，滑向一格，松手。
+        </div>
+        <div class="hud br">
+          <b>GLASS</b>
+          <br>NO DRILL
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <small>RELEASE → FOREGROUND</small>
+    <strong id="toastName">已切换至 <em>浏览器</em></strong>
+    <i class="bar" aria-hidden="true"></i>
+  </div>
+
+  <!-- ======================= STATS ======================= -->
+  <section class="stats" aria-label="产品数据">
+    <div class="wrap">
+      <div class="grid">
+        <div class="stat"><span class="v">10</span><span class="k"><b>默认席位</b>可扩到 24</span></div>
+        <div class="stat"><span class="v">1<small>EXE</small></span><span class="k"><b>绿色单文件</b>解压即用</span></div>
+        <div class="stat"><span class="v">1.3<small>MB</small></span><span class="k"><b>轻到没有存在感</b>不驻留服务</span></div>
+        <div class="stat"><span class="v">0</span><span class="k"><b>安装步骤</b>卸载 = 删目录</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= MARQUEE ======================= -->
+  <div class="marquee" aria-hidden="true">
+    <div class="track">
+      <div class="seq">
+        <span>Alt + Left Button</span><i></i>
+        <span><b>One Exe</b></span><i></i>
+        <span>No Installer</span><i></i>
+        <span>Six Forms</span><i></i>
+        <span>Multi-Screen Aware</span><i></i>
+        <span><b>Seat Memory</b></span><i></i>
+        <span>Green Build</span><i></i>
+        <span>Zero Friction</span><i></i>
+      </div>
+      <div class="seq">
+        <span>Alt + Left Button</span><i></i>
+        <span><b>One Exe</b></span><i></i>
+        <span>No Installer</span><i></i>
+        <span>Six Forms</span><i></i>
+        <span>Multi-Screen Aware</span><i></i>
+        <span><b>Seat Memory</b></span><i></i>
+        <span>Green Build</span><i></i>
+        <span>Zero Friction</span><i></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= HOW ======================= -->
+  <section class="how" id="how" aria-labelledby="howTitle">
+    <div class="wrap">
+      <div class="how-grid">
+        <div class="how-head reveal">
+          <span class="eyebrow"><span class="idx">01</span> Quick Start</span>
+          <h2 class="sec-title" id="howTitle">三步，<br>形成肌肉记忆</h2>
+          <p class="sec-lede">没有窗口列表，没有 <span style="font-family:var(--display)">Alt+Tab</span> 的连环按。一次就会，之后不用看屏幕。</p>
+          <div class="note">
+            组合键、上盘键、轮盘大小与动画都可以改。改哪一行，<b>当场生效</b>，没有保存按钮。
+          </div>
+        </div>
+
+        <div class="step-list">
+          <div class="step-row reveal">
+            <div class="no">STEP 01</div>
+            <div>
+              <h3>按住 <kbd>Alt</kbd> 再按左键</h3>
+              <p>轮盘就在你按下鼠标的位置展开，不多占一块屏。默认组合是 <b>Alt + 左键</b>，也能换成别的键或鼠标侧键。</p>
+            </div>
+          </div>
+          <div class="step-row reveal d1">
+            <div class="no">STEP 02</div>
+            <div>
+              <h3>滑过去，用方向选</h3>
+              <p>指针落在哪一格，哪一格亮起，中心实时显示窗口标题。拖回圆心松手、或点右键，<b>取消</b>，不打扰任何窗口。</p>
+            </div>
+          </div>
+          <div class="step-row reveal d2">
+            <div class="no">STEP 03</div>
+            <div>
+              <h3>松手，窗口到前台</h3>
+              <p>松开左键即刻切换。顺手 <kbd>Ctrl</kbd><span style="opacity:.4">+</span><kbd>2</kbd> 把当前窗口钉上轮盘；<kbd>Ctrl</kbd><span style="opacity:.4">+</span><kbd>T</kbd> 打开设置。</p>
+            </div>
+          </div>
+          <div class="step-row reveal d3">
+            <div class="no">BONUS</div>
+            <div>
+              <h3>位置就是快捷键</h3>
+              <p>窗口按指纹记座，下次登录还在老位置。手指不用找，<b>座位有记性</b>。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= FORMS ======================= -->
+  <section class="forms" id="forms" aria-labelledby="formsTitle">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div>
+          <span class="eyebrow"><span class="idx">02</span> Six Forms</span>
+          <h2 class="sec-title" id="formsTitle">给桌面换一种<em>语气</em></h2>
+        </div>
+        <p class="side">同一副几何，六种材质。点一下，右侧轮盘立即换装——你桌面上的那一枚也会跟着变。</p>
+      </div>
+
+      <div class="forms-grid">
+        <div class="forms-visual reveal">
+          <span class="lab tl">Live Preview<strong id="themeEn">GLASS</strong></span>
+          <canvas id="formWheel" aria-label="轮盘形态预览"></canvas>
+          <span class="lab br">Current Form<span id="themeNo">02 / 06</span><span class="dotline" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></span></span>
+        </div>
+
+        <div class="reveal d1">
+          <div class="theme-list" aria-label="轮盘形态">
+            <button class="theme-btn" data-theme="outline" type="button">
+              <span class="theme-ico outline" aria-hidden="true"></span>
+              <div><h4>描边 <span>OUTLINE</span></h4><p>细线、留白，像一张工程草图。</p></div>
+              <span class="arw">→</span>
+            </button>
+            <button class="theme-btn on" data-theme="glass" type="button">
+              <span class="theme-ico glass" aria-hidden="true"></span>
+              <div><h4>玻璃 <span>GLASS</span></h4><p>磨砂玻璃叠在桌面上，默认形态。</p></div>
+              <span class="arw">→</span>
+            </button>
+            <button class="theme-btn" data-theme="shimmer" type="button">
+              <span class="theme-ico shimmer" aria-hidden="true"></span>
+              <div><h4>微光 <span>SHIMMER</span></h4><p>边缘一圈呼吸的微光，夜里自己亮起来。</p></div>
+              <span class="arw">→</span>
+            </button>
+            <button class="theme-btn" data-theme="card" type="button">
+              <span class="theme-ico card" aria-hidden="true"></span>
+              <div><h4>卡片 <span>CARD</span></h4><p>厚实色块与清晰分隔，适合浅色桌面。</p></div>
+              <span class="arw">→</span>
+            </button>
+            <button class="theme-btn" data-theme="neon" type="button">
+              <span class="theme-ico neon" aria-hidden="true"></span>
+              <div><h4>霓虹 <span>NEON</span></h4><p>黑场里的灯管，描边发着光。</p></div>
+              <span class="arw">→</span>
+            </button>
+            <button class="theme-btn" data-theme="paper" type="button">
+              <span class="theme-ico paper" aria-hidden="true"></span>
+              <div><h4>纸卡 <span>PAPER</span></h4><p>奶油纸面与柔和色，白天不刺眼。</p></div>
+              <span class="arw">→</span>
+            </button>
+          </div>
+          <p style="margin-top:20px;font-size:13px;color:var(--ink-dim);line-height:1.8" id="themeDesc">磨砂玻璃叠在桌面上，默认形态，安静耐看。</p>
+        </div>
+      </div>
+
+      <div class="forms-note reveal d2">
+        <span>单击切换 · 预览即时生效</span>
+        <span>所有形态随 DPI 逐屏缩放，不糊、不偏</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= CONTROL ROOM ======================= -->
+  <section class="control" id="control" aria-labelledby="controlTitle">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div>
+          <span class="eyebrow"><span class="idx">03</span> Control Room</span>
+          <h2 class="sec-title" id="controlTitle">设置也值得<em>多看一眼</em></h2>
+        </div>
+        <p class="side">快捷键 / 轮盘 / 语言 / 关于。四页讲完，没有下一步，也没有保存。</p>
+      </div>
+
+      <div class="control-frame reveal">
+        <div class="control-bar" aria-hidden="true">
+          <i></i><i></i><i></i>
+          <span class="t">ShaiZero 设置 — 轮盘</span>
+          <span class="live">LIVE</span>
+        </div>
+        <img src="assets/site/settings.png" alt="ShaiZero 设置窗口：左侧四页导航，中间是可交互的轮盘预览，右侧是窗口列表与外观选项" loading="lazy" width="1400" height="860">
+      </div>
+      <div class="control-caption reveal d1">
+        <span><b>左</b> 改快捷键、大小、间距、动画、上限</span>
+        <span><b>中</b> 直接玩预览：单击改名、右键移出、拖动换位</span>
+        <span><b>右</b> 窗口列表，双击上盘 / 下盘</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= BENTO ======================= -->
+  <section id="why" aria-labelledby="whyTitle">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div>
+          <span class="eyebrow"><span class="idx">04</span> Why ShaiZero</span>
+          <h2 class="sec-title" id="whyTitle">轻，是刻进<em>骨头里</em>的</h2>
+        </div>
+        <p class="side">没有账号、没有遥测、没有后台服务。一个 exe，用完就可以忘掉。</p>
+      </div>
+
+      <div class="bento">
+        <article class="card geo span7 reveal">
+          <span class="k">Geometry / 几何</span>
+          <h3>用方向选，而不是用眼睛找</h3>
+          <p>扇区角度、间距、圆环层次都经过收敛。目标永远在指针周围，手腕走的路比列表短得多。</p>
+          <svg class="art geo-svg" width="330" height="250" viewBox="0 0 330 250" fill="none" aria-hidden="true">
+            <circle cx="250" cy="140" r="96" stroke="rgba(242,237,228,.10)"/>
+            <circle cx="250" cy="140" r="64" stroke="rgba(242,237,228,.12)"/>
+            <circle cx="250" cy="140" r="30" stroke="rgba(233,181,106,.32)"/>
+            <circle cx="250" cy="140" r="118" stroke="rgba(242,237,228,.06)" stroke-dasharray="2 7"/>
+            <path d="M250 44A96 96 0 0 1 343 107" stroke="#4C8DFF" stroke-opacity=".55" stroke-width="1.4"/>
+            <path d="M343 173A96 96 0 0 1 293 225" stroke="#2ED3A0" stroke-opacity=".5" stroke-width="1.4"/>
+            <path d="M207 225A96 96 0 0 1 155 154" stroke="#FF8AC2" stroke-opacity=".45" stroke-width="1.4"/>
+            <path d="M157 121A96 96 0 0 1 210 49" stroke="#F5C451" stroke-opacity=".55" stroke-width="1.4"/>
+            <path d="M152 140h196" stroke="rgba(233,181,106,.35)" stroke-dasharray="3 6" class="dash"/>
+            <circle cx="250" cy="140" r="5" fill="#E9B56A"/>
+            <circle cx="250" cy="44" r="3" fill="#4C8DFF"/>
+            <circle cx="343" cy="173" r="3" fill="#2ED3A0"/>
+            <circle cx="155" cy="154" r="3" fill="#FF8AC2"/>
+          </svg>
+        </article>
+
+        <article class="card memo span5 reveal d1">
+          <span class="k">Seat Memory / 记性</span>
+          <h3>位置就是快捷键</h3>
+          <p>窗口按指纹记座。下次开机，浏览器还在右上，终端还在左下。</p>
+          <div class="memo-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="tags"><span>指纹识别</span><span>手工上盘</span><span>保留空位</span></div>
+          <svg class="memo-svg" width="96" height="96" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+            <path d="M18 48c0-16.6 13.4-30 30-30s30 13.4 30 30" stroke="rgba(233,181,106,.5)" stroke-width="1.3"/>
+            <path d="M26 48c0-12.2 9.8-22 22-22s22 9.8 22 22" stroke="rgba(233,181,106,.34)" stroke-width="1.3"/>
+            <path d="M34 48c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="rgba(233,181,106,.26)" stroke-width="1.3"/>
+            <path d="M48 78V56" stroke="rgba(233,181,106,.45)" stroke-width="1.3"/>
+            <circle cx="48" cy="48" r="4" fill="#E9B56A"/>
+          </svg>
+        </article>
+
+        <article class="card span4 reveal">
+          <span class="k">Footprint / 体积</span>
+          <h3>一兆出头，随身带</h3>
+          <p>静态 CRT 编译，不依赖 .NET / VC++ 运行库。压缩包里只有 exe、许可证、说明。</p>
+          <div class="big">1.3<small>MB</small></div>
+        </article>
+
+        <article class="card span4 reveal d1">
+          <span class="k">Form / 形态</span>
+          <h3>六套，随心换</h3>
+          <p>从工程草图到黑场灯管，总有一套配你的桌面。</p>
+          <div class="dot-row" aria-hidden="true">
+            <i style="--c:#4C8DFF"></i><i style="--c:#2ED3A0"></i><i style="--c:#B18CFF"></i><i style="--c:#F5C451"></i><i style="--c:#FF8AC2"></i><i style="--c:#45D3F2"></i>
+          </div>
+        </article>
+
+        <article class="card span4 reveal d2">
+          <span class="k">Multi-Screen / 多屏</span>
+          <h3>在按下的那块屏展开</h3>
+          <p>逐屏 DPI 感知，缩放不糊、不偏；轮盘永远跟着指针走。</p>
+          <div class="screens" aria-hidden="true"><i></i><i></i><i></i></div>
+        </article>
+
+        <article class="card span12 reveal" id="arch">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap">
+            <div>
+              <span class="k">Architecture / 分层</span>
+              <h3>三层，各管各的</h3>
+              <p>core 不知道 Windows 存在，platform-win 不知道 UI 存在，app 只做编排。纯 Rust，140 项单元测试。</p>
+            </div>
+            <div class="arch" aria-label="项目分层：core 到 platform-win 到 app">
+              <span><b>core</b><small>几何 · 手势 · 配色</small></span>
+              <i>→</i>
+              <span><b>platform-win</b><small>钩子 · z 序 · DPI</small></span>
+              <i>→</i>
+              <span><b>app</b><small>托盘 · 绘制 · 设置</small></span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= DOWNLOAD ======================= -->
+  <section id="download" aria-labelledby="dlTitle">
+    <div class="wrap">
+      <div class="dl-panel reveal">
+        <div class="dl-copy">
+          <div class="ver">
+            <span class="tag">LATEST</span>
+            <span id="relVer">v0.1.1</span>
+            <span style="opacity:.4">·</span>
+            <span>WIN64</span>
+          </div>
+          <h2 id="dlTitle">拿走，<em>不谢</em></h2>
+          <p>到 GitHub Releases 下载 <code>shaizero-&lt;版本&gt;-win64.zip</code>，解压到任意目录，双击 <code>ShaiZero.exe</code> 就能用。运行要求：Windows 10 1809+ 或 Windows 11，x64。</p>
+          <div class="dl-actions">
+            <a class="btn primary" href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+              前往 Releases
+            </a>
+            <a class="btn" href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">源码仓库</a>
+          </div>
+          <div class="dl-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span>每个 release 附带 SHA256SUMS.txt。校验：<code style="margin-left:4px">certutil -hashfile &lt;zip&gt; SHA256</code></span>
+          </div>
+        </div>
+
+        <div class="dl-spec">
+          <div class="row"><span>最新版本</span><b id="relVer2">v0.1.1</b></div>
+          <div class="row"><span>下载体积</span><b id="relSize">1.3 MB</b></div>
+          <div class="row"><span>发布日期</span><b id="relDate">2026.11.11</b></div>
+          <div class="row"><span>运行平台</span><b>Windows 10 1809+ / 11 · x64</b></div>
+          <div class="row"><span>运行依赖</span><b>无 · 静态 CRT</b></div>
+          <div class="row"><span>许可</span><b>MIT + Commons Clause</b></div>
+          <div class="row"><span>卸载</span><b>删目录 + %LOCALAPPDATA%\ShaiZero</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= COFFEE ======================= -->
+  <section class="coffee" aria-labelledby="coffeeTitle">
+    <div class="wrap">
+      <div class="coffee-panel reveal">
+        <div class="coffee-copy">
+          <span class="k">Buy Me a Coffee</span>
+          <h2 id="coffeeTitle">如果它帮你少找了几次窗口</h2>
+          <p>ShaiZero 免费使用：可修改、可闭源分发、可企业内部部署，但不得有偿销售。要是它确实顺手了一点，可以请作者喝杯咖啡。心意收到。</p>
+          <div class="fine">MIT LICENSE + COMMONS CLAUSE</div>
+        </div>
+        <div class="qr-wrap">
+          <div class="qr"><img src="assets/site/donate-qr.png" alt="赞赏二维码" loading="lazy"></div>
+          <small>Scan to support</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot" id="footer">
+  <div class="wrap">
+    <div class="foot-word" aria-hidden="true">SHAIZERO</div>
+    <div class="foot-row">
+      <div class="foot-brand">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="29" fill="none" stroke="rgba(242,237,228,.14)"/>
+          <path d="M32 5a27 27 0 0 1 23.4 13.5" fill="none" stroke="#E9B56A" stroke-width="4.4" stroke-linecap="round"/>
+          <path d="M32 5a27 27 0 0 0-23.4 13.5" fill="none" stroke="#4C8DFF" stroke-width="4.4" stroke-linecap="round"/>
+          <circle cx="32" cy="32" r="6.5" fill="#E9B56A"/>
+        </svg>
+        ShaiZero
+        <span style="opacity:.4;font-family:var(--sans);font-size:12px;letter-spacing:.02em">指尖一转，窗口即达</span>
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/19y/ShaiZero" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/19y/ShaiZero/releases/latest" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/19y/ShaiZero/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+        <a href="https://github.com/19y/ShaiZero/blob/main/README.md" target="_blank" rel="noopener">README</a>
+      </div>
+      <div class="foot-fine">© <span id="year">2026</span> SHAIZERO · BUILT WITH RUST</div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site/site.js"></script>
+</body>
+</html>
