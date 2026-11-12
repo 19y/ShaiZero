@@ -115,8 +115,8 @@ $script:KitOpenSettings = 0x8000 + 15
 # the pointer is. The disc window answers them; the app window does not.
 $script:KitWheelOpen = 0x8000 + 20
 $script:KitWheelPick = 0x8000 + 21
-# WM_APP + 22: the pins changed, so the file the app owns gets written again.
-$script:KitWheelPins = 0x8000 + 22
+# WM_APP + 22 belongs to nobody now: the dial's angle is fixed for a gesture,
+# so the wheel no longer posts a new one back to the app window.
 $script:KitHotkey = 0x0312
 $script:KitClose = 0x0010
 $script:KitMouseMove = 0x0200

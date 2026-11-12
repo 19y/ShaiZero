@@ -483,7 +483,7 @@ table! {
     // the only place the mouse's part in editing is written down.
     "settings_nav_dial" => "Wheel" | "轮盘",
     "settings_dial_preview" => "Preview" | "轮盘预览",
-    "settings_dial_preview_note" => "Click to name a slice, right-click to take it off, drag to place it, drag the blank ring outside to turn the wheel" | "单击扇区改名，右键移出，拖动换位；拖外侧留白处旋转整个轮盘",
+    "settings_dial_preview_note" => "Click to name a slice, right-click to take it off, drag to place it, drag the blank ring outside to set the angle (only here)" | "单击扇区改名，右键移出，拖动换位；拖外侧留白处调整角度（仅此处可调）",
     "settings_dial_theme" => "Theme" | "主题",
     // The compact strip beside the window list has room for a word, not a
     // sentence: these are the short names the page paints in its left column.

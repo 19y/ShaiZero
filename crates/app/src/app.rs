@@ -251,7 +251,7 @@ impl App {
             // The wheel's two layers are made here and stay hidden until a gesture
             // asks for them. The hook does not go in until `start()`, so a refusal
             // to install cannot leave the app holding a half-switcher.
-            crate::wheel::startup(&settings, hwnd);
+            crate::wheel::startup(&settings);
             let (x, y) = monitor::cursor();
             let monitor = monitor::at_point(x, y);
             let app = Box::new(App {
@@ -420,18 +420,6 @@ impl App {
             }
             WM_OPEN_SETTINGS => {
                 self.open_settings_at(wp.0);
-                LRESULT(0)
-            }
-            crate::wheel::WM_WHEEL_ROTATE => {
-                // The dial was turned by dragging outside its rim. The wheel
-                // hands the angle over when the gesture ends so the setting is
-                // written once, not once per frame of the drag.
-                let angle = (wp.0 as f32 / 100.0).rem_euclid(360.0);
-                if (self.settings.wheel_rotate - angle).abs() > 0.01 {
-                    self.settings.wheel_rotate = angle;
-                    self.settings.save();
-                    crate::wheel::reconfigure(&self.settings);
-                }
                 LRESULT(0)
             }
             tray::WM_TRAY => {

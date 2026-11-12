@@ -6496,6 +6496,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 LRESULT(0)
             }
             WM_WHEEL_OPENED => {
+                // A turn drag left holding the mouse here would keep writing a
+                // new angle while the wheel is on screen, and its release would
+                // apply that angle to the next opening. Let the capture go and
+                // put the number back to the one that was applied: the angle is
+                // adjustable in this preview only, never during a gesture.
+                if state.dial_rotate.take().is_some() {
+                    let _ = ReleaseCapture();
+                    state.wheel_rotate = (*state.app).applied_settings().wheel_rotate;
+                }
                 // The dial is the thing being aimed at now, so the still picture
                 // underneath is stale: a page nobody is looking at will build a
                 // fresh one when it is next entered.

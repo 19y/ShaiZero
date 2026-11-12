@@ -60,9 +60,9 @@ const PREVIEW_INSET: i32 = 4;
 const WHEEL_TIMER: usize = 0x57_C0;
 const WM_WHEEL_OPEN: u32 = WM_APP + 20;
 const WM_WHEEL_PICK: u32 = WM_APP + 21;
-/// The turn the user dragged the dial to, sent to the app window so the settings
-/// file can keep it. The angle is in hundredths of a degree in `wParam`.
-pub const WM_WHEEL_ROTATE: u32 = WM_APP + 22;
+// No message carries a new angle: a dial that is already on screen keeps the
+// turn it opened with. Adjusting the angle is a deliberate act in the settings
+// preview, and reaches the wheel through `reconfigure` instead.
 
 /// Opens the dial at the point packed into `lParam`, for checks that cannot move
 /// the pointer. A real gesture records the press and then sends `WM_WHEEL_OPEN`;
@@ -75,10 +75,6 @@ const WM_WHEEL_OPEN_AT: u32 = WM_APP + 30;
 
 /// How long one sector takes to lean out towards the pointer, and to lean back.
 const POP_MS: f32 = 90.0;
-/// How far past the outermost ring the pointer has to be before a drag turns the
-/// whole dial instead of aiming. In logical pixels, so it is the same grab on a
-/// 125% screen as on a 100% one.
-const ROTATE_GRAB_MARGIN: f32 = 8.0;
 /// A gesture nobody finishes: no input event at all for this long means the wheel
 /// is being held on screen by something we did not see - a suspended session, a
 /// remote tool that ate the release.
@@ -86,6 +82,38 @@ const WATCHDOG_SECS: f64 = 10.0;
 /// The rim the veil draws when there is nothing to frame: the hub, a gap, a
 /// window on another desktop, or one whose frame could not be read at all.
 const NO_OUTLINE: Rgb = Rgb::new(120, 190, 255);
+
+/// The dial's turn, and the one rule about it: a gesture opens at the angle
+/// the settings file asks for and keeps that angle until it ends. A settings
+/// change while a dial is on screen only updates `wanted`, so nothing can turn
+/// the picture under the pointer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Angle {
+    /// Degrees clockwise the dial is currently drawn at.
+    shown: f32,
+    /// Degrees the settings file asks for, picked up by the next opening.
+    wanted: f32,
+}
+
+impl Angle {
+    fn new(value: f32) -> Angle {
+        Angle {
+            shown: value,
+            wanted: value,
+        }
+    }
+
+    /// The settings page moved the angle. A dial already on screen is not
+    /// listening: only the next gesture opens at the new number.
+    fn set_wanted(&mut self, value: f32) {
+        self.wanted = value;
+    }
+
+    /// A gesture begins. This is the only moment the drawn angle can change.
+    fn begin_gesture(&mut self) {
+        self.shown = self.wanted;
+    }
+}
 
 /// One window seated on the dial.
 struct Seat {
@@ -157,20 +185,10 @@ struct Wheel {
     theme: u32,
     accent: u32,
     seam: f32,
-    /// Degrees clockwise the whole dial is turned, so the user can put the first
-    /// sector where their hand expects it. Moved by dragging outside the rim.
-    rotate: f32,
-    /// The pointer's bearing when the drag began, less the turn at that moment.
-    /// `None` while the pointer is not out past the rim. Keeping the difference
-    /// rather than the raw bearing is what stops the dial jumping when the drag
-    /// starts.
-    rotate_grab: Option<f32>,
-    /// The turn the last painted frame used, so a drag asks for a repaint even
-    /// when no sector is leaning.
-    painted_rotate: f32,
-    /// The turn already written to the settings file, so letting go only writes
-    /// when the drag actually moved it.
-    rotate_committed: f32,
+    /// Degrees clockwise the whole dial is turned, so the user can put the
+    /// first sector where their hand expects it. See [`Angle`]: fixed from the
+    /// moment the dial opens until the gesture ends.
+    angle: Angle,
     open_ms: f32,
     /// How many windows are drawn, and whether favourites come first. The dial is
     /// a quick target: the rest of the desktop stays in the panel's list.
@@ -213,10 +231,7 @@ impl Wheel {
             theme: crate::settings::WHEEL_THEME_DEFAULT,
             accent: crate::settings::WHEEL_ACCENT_DEFAULT,
             seam: crate::settings::WHEEL_SEAM_DEFAULT,
-            rotate: crate::settings::WHEEL_ROTATE_DEFAULT,
-            rotate_grab: None,
-            painted_rotate: crate::settings::WHEEL_ROTATE_DEFAULT,
-            rotate_committed: crate::settings::WHEEL_ROTATE_DEFAULT,
+            angle: Angle::new(crate::settings::WHEEL_ROTATE_DEFAULT),
             open_ms: crate::settings::WHEEL_OPEN_MS_DEFAULT as f32,
             limit: crate::settings::WHEEL_LIMIT_DEFAULT,
             order: crate::settings::DIAL_ORDER_DEFAULT,
@@ -245,11 +260,11 @@ impl Wheel {
             return;
         };
         let (dx, dy) = self.offset();
-        // The sectors are drawn at their plan bearing plus `rotate`, so the
-        // pointer's offset is turned back by the same amount before the ruler
-        // reads it. Without this a turned dial would answer as if it were
-        // upright.
-        let (sin, cos) = (-self.rotate).to_radians().sin_cos();
+        // The sectors are drawn at their plan bearing plus the fixed turn,
+        // so the pointer's offset is turned back by the same amount before the
+        // ruler reads it. Without this a dial turned in the settings preview
+        // would answer as if it were upright.
+        let (sin, cos) = (-self.angle.shown).to_radians().sin_cos();
         let aim = self
             .geometry
             .aim(plan, dx * cos - dy * sin, dx * sin + dy * cos);
@@ -258,27 +273,6 @@ impl Wheel {
             Aim::Slot { id, .. } => id,
             _ => usize::MAX,
         };
-    }
-
-    /// Turns the whole dial while the pointer is out past the rim. The rim is
-    /// the dial's own reach, so the handle is the empty ring the disc window
-    /// already occupies - the pointer does not have to leave the screen.
-    fn turn_if_outside(&mut self) {
-        let Some(plan) = self.dial_plan.as_ref() else {
-            self.rotate_grab = None;
-            return;
-        };
-        let reach = self.geometry.extent(plan.rings()) + ROTATE_GRAB_MARGIN;
-        let (dx, dy) = self.offset();
-        if (dx * dx + dy * dy).sqrt() <= reach {
-            self.rotate_grab = None;
-            return;
-        }
-        let bearing = (dy.atan2(dx).to_degrees() + 90.0).rem_euclid(360.0);
-        let grab = *self
-            .rotate_grab
-            .get_or_insert_with(|| (bearing - self.rotate).rem_euclid(360.0));
-        self.rotate = (bearing - grab).rem_euclid(360.0);
     }
 
     fn seat(&self, id: usize) -> Option<&Seat> {
@@ -646,10 +640,6 @@ static DISC_HWND: AtomicIsize = AtomicIsize::new(0);
 static VEIL_HWND: AtomicIsize = AtomicIsize::new(0);
 static LOCATOR_HWND: AtomicIsize = AtomicIsize::new(0);
 static PREVIEW_HWND: AtomicIsize = AtomicIsize::new(0);
-/// The line's window, which is the app's window: the one that owns the settings
-/// file and the journal. Learned at start-up so a pin can ask for a save without
-/// the wheel holding a borrow of `App` across a hook callback.
-static APP_HWND: AtomicIsize = AtomicIsize::new(0);
 
 fn disc() -> HWND {
     HWND(DISC_HWND.load(Ordering::Relaxed) as *mut core::ffi::c_void)
@@ -674,13 +664,11 @@ fn layer_ex() -> WINDOW_EX_STYLE {
     WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
 }
 
-/// Builds the two layers, takes the settings and learns where to send a save.
-/// Called once at startup; both sit 1x1 in the
-/// corner until a gesture needs them, because creating a layered window at the
-/// size it will eventually be costs a full-screen DIB for a wheel that may never
-/// open.
-pub fn startup(settings: &Settings, app: HWND) {
-    APP_HWND.store(app.0 as isize, Ordering::Relaxed);
+/// Builds the two layers and takes the settings. Called once at startup; both
+/// sit 1x1 in the corner until a gesture needs them, because creating a layered
+/// window at the size it will eventually be costs a full-screen DIB for a wheel
+/// that may never open.
+pub fn startup(settings: &Settings) {
     seed_favorites(&settings.favorites);
     seed_seats(&settings.seat_order, &settings.bound, &settings.parked);
     seed_tags(&settings.tags);
@@ -816,9 +804,10 @@ pub fn reconfigure(settings: &Settings) {
         w.theme = settings.wheel_theme;
         w.accent = settings.wheel_accent;
         w.seam = settings.wheel_seam;
-        w.rotate = settings.wheel_rotate;
-        w.painted_rotate = w.rotate;
-        w.rotate_committed = w.rotate;
+        // The settings file is the only place an angle comes from, and the
+        // next opening is the only moment it is picked up. A wheel already on
+        // screen keeps the turn it opened with, whatever the panel does.
+        w.angle.set_wanted(settings.wheel_rotate);
         w.open_ms = settings.wheel_open_ms as f32;
         w.limit = settings.wheel_limit;
         w.order = settings.dial_order;
@@ -1071,14 +1060,11 @@ fn move_to(x: i32, y: i32) -> Verdict {
     let event = with(|w| w.machine.on_move(gesture::Pt::new(x, y)));
     match event {
         gesture::OnMove::Nothing | gesture::OnMove::Aim(_) => {
-            // Past the rim the move is the dial's own handle rather than an aim:
-            // the whole wheel turns under the hand, which is how a user puts the
-            // first sector where it is comfortable.
-            with(|w| {
-                if w.open {
-                    w.turn_if_outside();
-                }
-            });
+            // A move past the rim is only "outside the dial" now. It used to be
+            // the handle that turned the whole wheel, but a hand straying out
+            // there changed the angle by accident, so the turn is fixed while
+            // the wheel is open. Changing it belongs to the settings preview,
+            // where the drag is deliberate.
             // The pointer keeps moving: the wheel is aimed at where it is, and
             // freezing it would be the one thing a radial menu must not do.
             Verdict::Forward
@@ -1229,38 +1215,9 @@ fn send(msg: u32, wp: usize) {
     }
 }
 
-/// Writes the turn the drag left behind, once the gesture is over. The wheel
-/// does not own the file, so it hands the number to the app window; saving on
-/// every frame of the drag would put a file write between the hand and the
-/// picture.
-fn commit_rotation() {
-    let angle = with(|w| {
-        if (w.rotate - w.rotate_committed).abs() < 0.01 {
-            return None;
-        }
-        w.rotate_committed = w.rotate;
-        Some(w.rotate)
-    });
-    let Some(angle) = angle else {
-        return;
-    };
-    let hwnd = HWND(APP_HWND.load(Ordering::Relaxed) as *mut core::ffi::c_void);
-    if hwnd.is_invalid() {
-        return;
-    }
-    let hundredths = (angle.rem_euclid(360.0) * 100.0).round() as usize;
-    unsafe {
-        let _ = PostMessageW(Some(hwnd), WM_WHEEL_ROTATE, WPARAM(hundredths), LPARAM(0));
-    }
-    crate::log!("wheel: turned to {angle:.1} degrees");
-}
-
 /// Abandons the gesture and takes the dial down. Escape, the right button, the
 /// watchdog and a release inside the hub all end here.
 fn cancel() {
-    // The dial may have been turned while the hand was out past the rim, and a
-    // turn is a choice the next opening has to keep.
-    commit_rotation();
     // The machine may still hold a swallowed press, and `abandon()` is what
     // decides whether an application is owed a click for it. Here the dial had
     // opened, so the press was spent and the answer is normally none.
@@ -2292,11 +2249,10 @@ fn build() {
         w.veiled = usize::MAX;
         w.located = None;
         w.painted_at = Instant::now();
-        // A fresh gesture starts with no handle held: the grab from the last
-        // gesture would turn the dial the moment the pointer crossed the rim.
-        w.rotate_grab = None;
-        w.painted_rotate = w.rotate;
-        w.rotate_committed = w.rotate;
+        // The angle is taken from the settings once, when the dial opens, and
+        // then held for the whole gesture so a stray move past the rim cannot
+        // change it.
+        w.angle.begin_gesture();
     });
     place();
     // A window above this app's integrity is listed because it is a window the
@@ -2500,13 +2456,7 @@ fn frame() {
         let unfolding = !w.reduced
             && w.open_ms > 0.0
             && (now - w.opened_at).as_secs_f32() * 1000.0 < w.open_ms;
-        // A turn is its own reason to repaint: no sector has to be leaning for a
-        // drag to have moved every bearing on the dial.
-        let turned = (w.rotate - w.painted_rotate).abs() > 0.01;
-        if turned {
-            w.painted_rotate = w.rotate;
-        }
-        Some(stepped || settling || unfolding || turned)
+        Some(stepped || settling || unfolding)
     });
     let Some(moving) = opened else {
         return;
@@ -2572,10 +2522,10 @@ fn paint_disc() {
         }
         let plan = w.dial_plan.as_ref()?;
         let scale = w.view_scale;
-        // The dial's turn belongs to the painting, not to the seats: the seats
-        // keep the plan's bearings so a drag can turn the wheel without rebuilding
-        // it, and the hit test reads the same number back.
-        let rotate = w.rotate;
+        // The dial's turn is applied to the picture only: the seats keep the
+        // plan's bearings and the hit test turns the pointer back by the same
+        // amount, so one fixed angle serves both without rebuilding the dial.
+        let rotate = w.angle.shown;
         let now = Instant::now();
         // Reduced motion means the dial is simply there: `open` at 1.0 leaves no
         // unfurl to interpolate, so the rings and the seats arrive together.
@@ -3154,7 +3104,6 @@ fn pick() {
         return;
     };
     let (hwnd, title, accessible) = target;
-    commit_rotation();
     with(|w| {
         w.open = false;
     });
@@ -3424,7 +3373,24 @@ fn frame_is_on(frame: RECT, work: shaiwin_platform_win::Rect) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{placed_frame, seat_list, sector_mark, SeatProblem, WindowInfo};
+    use super::{placed_frame, seat_list, sector_mark, Angle, SeatProblem, WindowInfo};
+
+    #[test]
+    fn the_angle_is_fixed_for_the_whole_gesture() {
+        let mut angle = Angle::new(0.0);
+        angle.begin_gesture();
+        assert_eq!(angle.shown, 0.0);
+        // A change from the settings page while the dial is on screen only
+        // updates what the next opening will use. The picture - and the hit
+        // test that reads the same number - must not move under the pointer.
+        angle.set_wanted(47.5);
+        assert_eq!(angle.shown, 0.0, "a gesture must not turn under the hand");
+        angle.set_wanted(90.0);
+        assert_eq!(angle.shown, 0.0, "and not on a second change either");
+        // The next gesture is the first one allowed to use the new angle.
+        angle.begin_gesture();
+        assert_eq!(angle.shown, 90.0);
+    }
 
     /// A dial that has already learned the order of this desk.
     fn remember(live: &[WindowInfo]) -> crate::settings::Settings {
